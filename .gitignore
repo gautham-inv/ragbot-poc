@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Keep the index but not the raw/ingested files
+data/raw/
+data/ingested/
+tmp_dirs.json
+tmp_doc_ann.txt
+.env
+
+# MacOS
+.DS_Store
