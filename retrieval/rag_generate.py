@@ -4,12 +4,16 @@ import os
 import sys
 from pathlib import Path
 
+from config import load_project_env
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 from openrouter import OpenRouter
 
-from retrieval.hybrid_search import _load_bm25, qdrant_search, bm25_search
+from retrieval.hybrid_search import _load_bm25_bundle, qdrant_search, bm25_search
+from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rrf import reciprocal_rank_fusion
+
+load_project_env()
 
 # Prevent noisy HF warnings
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
@@ -45,7 +49,7 @@ def build_system_prompt(context_str: str) -> str:
         "4. If the question is completely unrelated to the Gloriapets catalog (e.g. weather, news, math), "
         "politely decline and redirect to catalog questions.\n"
         "5. Always cite the source page number when possible (e.g. 'según Página 4').\n"
-        "6. Respond in the same language as the user's question.\n"
+        "6. Respond in the SAME LANGUAGE as the user's question.\n"
         "7. Use conversation history to understand follow-up questions, but ground all facts in the CONTEXT.\n\n"
 
         "## CONTEXT:\n" + context_str
@@ -92,9 +96,9 @@ def main() -> int:
     ap.add_argument("--query", required=True)
     ap.add_argument("--qdrant-url", default=os.getenv("QDRANT_URL", "http://localhost:6333"))
     ap.add_argument("--qdrant-api-key", default=os.getenv("QDRANT_API_KEY", None))
-    ap.add_argument("--collection", default="catalog_es")
+    ap.add_argument("--collection", default=os.getenv("QDRANT_COLLECTION", "catalog_es"))
     ap.add_argument("--bm25", default="data/index/bm25.pkl", type=Path)
-    ap.add_argument("--model", default="intfloat/multilingual-e5-small")
+    ap.add_argument("--model", default=os.getenv("EMBEDDING_MODEL", os.getenv("HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-small")))
     args = ap.parse_args()
 
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -104,13 +108,18 @@ def main() -> int:
         return 1
 
     print("[1/3] Loading search models...")
-    bm25, bm25_chunks = _load_bm25(args.bm25)
+    bm25_bundle = _load_bm25_bundle(args.bm25)
+    bm25 = bm25_bundle["bm25"]
+    bm25_chunks = bm25_bundle["chunks"]
+    product_dictionary = bm25_bundle.get("product_dictionary", {})
     client = QdrantClient(url=args.qdrant_url, api_key=args.qdrant_api_key)
-    model = SentenceTransformer(args.model)
+    model = SentenceTransformer(args.model, device="cpu")
 
-    print(f"[2/3] Searching information for: '{args.query}'...")
-    vec = qdrant_search(client, args.collection, model, args.query, top_k=8)
-    kw = bm25_search(bm25, bm25_chunks, args.query, top_k=8)
+    enriched_query = enrich_query_with_product_names(args.query, product_dictionary)
+
+    print(f"[2/3] Searching information for: '{enriched_query}'...")
+    vec = qdrant_search(client, args.collection, model, enriched_query, top_k=8)
+    kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=8)
     fused = reciprocal_rank_fusion(vec, kw, top_n=4)
 
     retrieved_chunks = [item.payload for item in fused]

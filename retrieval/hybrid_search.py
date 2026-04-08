@@ -7,15 +7,18 @@ from typing import Any
 
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
-
 from retrieval.rrf import RankedItem, reciprocal_rank_fusion
-from retrieval.es_tokenizer import tokenize_es
+from retrieval.tokenize import tokenize_es
 
 
 def _load_bm25(path: Path) -> tuple[Any, list[dict[str, Any]]]:
-    with path.open("rb") as f:
-        data = pickle.load(f)
+    data = _load_bm25_bundle(path)
     return data["bm25"], data["chunks"]
+
+
+def _load_bm25_bundle(path: Path) -> dict[str, Any]:
+    with path.open("rb") as f:
+        return pickle.load(f)
 
 
 def bm25_search(bm25: Any, chunks: list[dict[str, Any]], query: str, top_k: int = 10) -> list[RankedItem]:
@@ -37,7 +40,11 @@ def qdrant_search(
     top_k: int = 10,
 ) -> list[RankedItem]:
     q = model.encode([f"query: {query}"], normalize_embeddings=True).tolist()[0]
-    hits = client.query_points(collection_name=collection, query=q, limit=top_k).points
+    if hasattr(client, "search"):
+        hits = client.search(collection_name=collection, query_vector=q, limit=top_k)
+    else:
+        result = client.query_points(collection_name=collection, query=q, limit=top_k)
+        hits = result.points
     out: list[RankedItem] = []
     for h in hits:
         payload = dict(h.payload or {})
@@ -52,14 +59,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Hybrid search (Qdrant + BM25 + RRF).")
     ap.add_argument("--query", required=True)
     ap.add_argument("--qdrant-url", default="http://localhost:6333")
+    ap.add_argument("--qdrant-api-key", default=None)
     ap.add_argument("--collection", default="catalog_es")
     ap.add_argument("--bm25", default="data/index/bm25.pkl", type=Path)
     ap.add_argument("--model", default="intfloat/multilingual-e5-small")
     args = ap.parse_args()
 
     bm25, chunks = _load_bm25(args.bm25)
-    client = QdrantClient(url=args.qdrant_url)
-    model = SentenceTransformer(args.model)
+    client = QdrantClient(url=args.qdrant_url, api_key=args.qdrant_api_key)
+    model = SentenceTransformer(args.model, device="cpu")
 
     vec = qdrant_search(client, args.collection, model, args.query, top_k=10)
     kw = bm25_search(bm25, chunks, args.query, top_k=10)
@@ -74,4 +82,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

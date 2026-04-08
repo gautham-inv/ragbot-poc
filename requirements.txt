@@ -1,5 +1,4 @@
 docling
-sentence-transformers
 qdrant-client
 rank-bm25
 langchain
@@ -7,5 +6,7 @@ langchain-openai
 pytesseract
 pillow
 tqdm
+sentence-transformers
 streamlit
 openrouter
+python-dotenv

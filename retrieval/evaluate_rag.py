@@ -5,12 +5,16 @@ from pathlib import Path
 # Ensure project root is on path so imports work correctly
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config import load_project_env
 from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 
-from retrieval.hybrid_search import _load_bm25, qdrant_search, bm25_search
+from retrieval.hybrid_search import _load_bm25_bundle, qdrant_search, bm25_search
+from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rrf import reciprocal_rank_fusion
 from retrieval.rag_generate import generate_answer
+
+load_project_env()
 
 def run_tests():
     api_key = os.getenv("OPENROUTER_API_KEY")
@@ -18,15 +22,19 @@ def run_tests():
         print("ERROR: Define OPENROUTER_API_KEY.")
         return
 
-    qdrant_url = "http://localhost:6333"
-    collection = "catalog_es"
+    qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+    qdrant_api_key = os.getenv("QDRANT_API_KEY", None)
+    collection = os.getenv("QDRANT_COLLECTION", "catalog_es")
     bm25_path = Path("data/index/bm25.pkl")
-    model_name = "intfloat/multilingual-e5-small"
+    model_name = os.getenv("EMBEDDING_MODEL", os.getenv("HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-small"))
 
     print("Loading indices...")
-    bm25, bm25_chunks = _load_bm25(bm25_path)
-    client = QdrantClient(url=qdrant_url)
-    model = SentenceTransformer(model_name)
+    bm25_bundle = _load_bm25_bundle(bm25_path)
+    bm25 = bm25_bundle["bm25"]
+    bm25_chunks = bm25_bundle["chunks"]
+    product_dictionary = bm25_bundle.get("product_dictionary", {})
+    client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+    model = SentenceTransformer(model_name, device="cpu")
 
     test_queries = [
         # Prueba 1: Skinnia (Página 4) - Test de extracción de tablas (precio y tallas)
@@ -51,8 +59,9 @@ def run_tests():
         print("*"*80)
         
         # Buscar
-        vec = qdrant_search(client, collection, model, query, top_k=8)
-        kw = bm25_search(bm25, bm25_chunks, query, top_k=8)
+        enriched_query = enrich_query_with_product_names(query, product_dictionary)
+        vec = qdrant_search(client, collection, model, enriched_query, top_k=8)
+        kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=8)
         fused = reciprocal_rank_fusion(vec, kw, top_n=4)
         
         retrieved_chunks = [item.payload for item in fused]

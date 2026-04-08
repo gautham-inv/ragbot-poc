@@ -21,8 +21,11 @@ from pathlib import Path
 # Ensure project root is on path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config import load_project_env
 from indexing.build_index import _load_pages, build_chunks
-from retrieval.es_tokenizer import tokenize_es
+from retrieval.tokenize import tokenize_es
+
+load_project_env()
 
 
 def main() -> int:
@@ -31,7 +34,7 @@ def main() -> int:
     qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
     qdrant_api_key = os.getenv("QDRANT_API_KEY", None)
     bm25_out = Path("data/index/bm25.pkl")
-    model_name = "intfloat/multilingual-e5-small"
+    model_name = os.getenv("EMBEDDING_MODEL", os.getenv("HF_EMBEDDING_MODEL", "intfloat/multilingual-e5-small"))
     batch_size = 32
 
     print(f"[1/5] Loading pages from {pages_dir}...", flush=True)
@@ -45,7 +48,7 @@ def main() -> int:
     print(f"[2/5] Loading embedding model: {model_name}...", flush=True)
     try:
         from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer(model_name)
+        model = SentenceTransformer(model_name, device="cpu")
         dim = model.get_sentence_embedding_dimension()
         print(f"       Model loaded, embedding dim = {dim}", flush=True)
     except Exception as e:
