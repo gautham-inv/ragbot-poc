@@ -13,6 +13,6 @@ web/.env
 tmp_dirs.json
 tmp_doc_ann.txt
 .env
-
+web/.env.local
 # MacOS
 .DS_Store
