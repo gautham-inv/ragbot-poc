@@ -7,7 +7,7 @@ Type=simple
 User=gautham
 WorkingDirectory=/home/gautham/ragbot-poc/web
 Environment=NODE_ENV=production
-Environment=NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+Environment=NEXT_PUBLIC_API_BASE_URL=https://gloriapets-chatbot.innovin.win
 ExecStart=/usr/bin/npm run start -- --port 3000 --hostname 0.0.0.0
 Restart=always
 RestartSec=3
