@@ -31,7 +31,10 @@ app = FastAPI(title="Gloriapets RAG API")
 # CORS for local/dev frontends (Next.js)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+    "https://gloriapets-chatbot.innovin.win",
+    "http://localhost:3000",
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
