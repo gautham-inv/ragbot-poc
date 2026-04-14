@@ -46,6 +46,43 @@ python -m ingestion.mistral_markdown_ingest --input-dir .\data\raw\ocr-playgroun
 python indexing\run_build.py
 ```
 
+## Web UI (Next.js) + API (FastAPI)
+
+This repo now includes:
+- `backend/app.py` (FastAPI) on port `8000`
+- `web/` (Next.js + Tailwind) on port `3000`
+
+### Run API
+```bash
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+uvicorn backend.app:app --host 0.0.0.0 --port 8000
+```
+
+### Run Web UI
+```bash
+cd web
+npm install
+set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+npm run dev
+```
+
+## Production (systemd)
+
+This repo includes systemd unit templates:
+- `deploy/systemd/ragbot-api.service`
+- `deploy/systemd/ragbot-web.service`
+
+On the server:
+```bash
+sudo cp /home/gautham/ragbot-poc/deploy/systemd/ragbot-api.service /etc/systemd/system/
+sudo cp /home/gautham/ragbot-poc/deploy/systemd/ragbot-web.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable ragbot-api ragbot-web
+sudo systemctl restart ragbot-api ragbot-web
+```
+
 ## Folder layout
 
 - `data/raw/`: input PDFs

@@ -1,0 +1,53 @@
+name: "Deploy"
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEPLOY_HOST: 178.104.136.42
+  DEPLOY_USER: gautham
+  DEPLOY_PATH: /home/gautham/ragbot-poc
+  API_BASE_URL: http://localhost:8000
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${DEPLOY_HOST} >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy (git pull + deps)
+        run: |
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && git pull origin main"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && . .venv/bin/activate && pip install -r requirements.txt"
+
+      - name: Build Web UI
+        run: |
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH}/web && npm install"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH}/web && NEXT_PUBLIC_API_BASE_URL=${API_BASE_URL} npm run build"
+
+      - name: Install systemd units (first run only)
+        run: |
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo cp ${DEPLOY_PATH}/deploy/systemd/ragbot-api.service /etc/systemd/system/ragbot-api.service"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo cp ${DEPLOY_PATH}/deploy/systemd/ragbot-web.service /etc/systemd/system/ragbot-web.service"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl daemon-reload"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl enable ragbot-api ragbot-web"
+
+      - name: Restart services
+        run: |
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl restart ragbot-api"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl restart ragbot-web"

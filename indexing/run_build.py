@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config import load_project_env
 from indexing.build_index import _load_pages, build_chunks
-from retrieval.tokenize import tokenize_es
+from retrieval.tokenize_es import tokenize_es
 
 load_project_env()
 
@@ -59,7 +59,7 @@ def main() -> int:
     print(f"[3/5] Creating Qdrant collection '{collection}'...", flush=True)
     try:
         from qdrant_client import QdrantClient
-        from qdrant_client.http.models import Distance, VectorParams
+        from qdrant_client.http.models import Distance, VectorParams, PayloadSchemaType
 
         client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         # Delete if exists
@@ -71,6 +71,13 @@ def main() -> int:
             collection_name=collection,
             vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         )
+        # Create payload indexes for filtered fields
+        for field_name in ["chunk_type", "brand", "sku"]:
+            client.create_payload_index(
+                collection_name=collection,
+                field_name=field_name,
+                field_schema=PayloadSchemaType.KEYWORD,
+            )
         print(f"       Collection created", flush=True)
     except Exception as e:
         print(f"ERROR with Qdrant: {e}")

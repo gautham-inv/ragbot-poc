@@ -6,9 +6,9 @@ from pathlib import Path
 from typing import Any
 
 from qdrant_client import QdrantClient
-from sentence_transformers import SentenceTransformer
+from qdrant_client.http.models import FieldCondition, Filter, MatchValue
 from retrieval.rrf import RankedItem, reciprocal_rank_fusion
-from retrieval.tokenize import tokenize_es
+from retrieval.tokenize_es import tokenize_es
 
 
 def _load_bm25(path: Path) -> tuple[Any, list[dict[str, Any]]]:
@@ -35,15 +35,27 @@ def bm25_search(bm25: Any, chunks: list[dict[str, Any]], query: str, top_k: int 
 def qdrant_search(
     client: QdrantClient,
     collection: str,
-    model: SentenceTransformer,
+    model: Any,
     query: str,
     top_k: int = 10,
+    *,
+    qdrant_filter: Filter | None = None,
 ) -> list[RankedItem]:
     q = model.encode([f"query: {query}"], normalize_embeddings=True).tolist()[0]
     if hasattr(client, "search"):
-        hits = client.search(collection_name=collection, query_vector=q, limit=top_k)
+        hits = client.search(
+            collection_name=collection,
+            query_vector=q,
+            query_filter=qdrant_filter,
+            limit=top_k,
+        )
     else:
-        result = client.query_points(collection_name=collection, query=q, limit=top_k)
+        result = client.query_points(
+            collection_name=collection,
+            query=q,
+            query_filter=qdrant_filter,
+            limit=top_k,
+        )
         hits = result.points
     out: list[RankedItem] = []
     for h in hits:
@@ -67,6 +79,8 @@ def main() -> int:
 
     bm25, chunks = _load_bm25(args.bm25)
     client = QdrantClient(url=args.qdrant_url, api_key=args.qdrant_api_key)
+    from sentence_transformers import SentenceTransformer  # type: ignore
+
     model = SentenceTransformer(args.model, device="cpu")
 
     vec = qdrant_search(client, args.collection, model, args.query, top_k=10)

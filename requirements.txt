@@ -7,6 +7,10 @@ pytesseract
 pillow
 tqdm
 sentence-transformers
-streamlit
 openrouter
 python-dotenv
+groq
+langfuse
+fastapi
+uvicorn
+python-multipart
