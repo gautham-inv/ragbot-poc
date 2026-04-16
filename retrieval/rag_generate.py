@@ -45,6 +45,39 @@ def _get_langfuse_client():
         return None
 
 
+def _langfuse_add_trace_tags(langfuse, *, trace_id: str | None, tags: list[str]) -> None:
+    if not langfuse or not trace_id or not tags:
+        return
+
+    deduped: list[str] = []
+    for t in tags:
+        t = (t or "").strip()
+        if not t or t in deduped:
+            continue
+        deduped.append(t)
+        if len(deduped) >= 50:
+            break
+
+    if not deduped:
+        return
+
+    try:
+        fn = getattr(langfuse, "_create_trace_tags_via_ingestion", None)
+        if callable(fn):
+            fn(trace_id=trace_id, tags=deduped)
+            return
+    except Exception:
+        pass
+
+    try:
+        from langfuse import propagate_attributes  # type: ignore
+
+        with propagate_attributes(tags=deduped):
+            pass
+    except Exception:
+        pass
+
+
 def build_context_str(chunks: list[dict]) -> str:
     """Format retrieved chunks into a numbered context block for the LLM."""
     context_str = ""
@@ -343,6 +376,10 @@ def main() -> int:
                 require_brand=require_brand,
             ) or retrieved_chunks
 
+            retrieved_skus = sorted({str(c.get("sku")) for c in retrieved_chunks if c.get("sku")})
+            if root_span is not None:
+                _langfuse_add_trace_tags(langfuse, trace_id=getattr(root_span, "trace_id", None), tags=retrieved_skus)
+
             if retrieval_span is not None:
                 try:
                     retrieval_span.update(
@@ -351,7 +388,7 @@ def main() -> int:
                             "bm25_top_k": top_k,
                             "vec_top_k": top_k if model is not None else 0,
                             "retrieved_count": len(retrieved_chunks),
-                            "retrieved_skus": sorted({c.get("sku") for c in retrieved_chunks if c.get("sku")}),
+                            "retrieved_skus": retrieved_skus,
                             "retrieved_pages": sorted(
                                 {c.get("physical_page_number", c.get("page_number")) for c in retrieved_chunks}
                             ),

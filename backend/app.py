@@ -157,6 +157,42 @@ def _langfuse_enabled() -> bool:
     return lf is not None and hasattr(lf, "start_observation")
 
 
+def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[str]) -> None:
+    if not langfuse or not trace_id or not tags:
+        return
+
+    # Langfuse tags are used for trace-level filtering; keep them small, unique, and stable.
+    deduped: list[str] = []
+    for t in tags:
+        t = (t or "").strip()
+        if not t or t in deduped:
+            continue
+        deduped.append(t)
+        if len(deduped) >= 50:
+            break
+
+    if not deduped:
+        return
+
+    # Preferred (SDK >=4): update trace tags via ingestion API.
+    try:
+        fn = getattr(langfuse, "_create_trace_tags_via_ingestion", None)
+        if callable(fn):
+            fn(trace_id=trace_id, tags=deduped)
+            return
+    except Exception:
+        pass
+
+    # Fallback: best-effort propagation (no-op if tracing context isn't active).
+    try:
+        from langfuse import propagate_attributes  # type: ignore
+
+        with propagate_attributes(tags=deduped):
+            pass
+    except Exception:
+        pass
+
+
 @app.on_event("startup")
 def _on_startup() -> None:
     _log_langfuse_status_once()
@@ -194,6 +230,86 @@ def _extract_retrieved_pages(retrieved_chunks: list[dict[str, Any]]) -> list[str
             continue
         pages.add(str(p))
     return sorted(pages)
+
+
+def _sku_counts_in_text(text: str, skus: list[str]) -> dict[str, int]:
+    import re
+
+    hay = (text or "").upper()
+    out: dict[str, int] = {}
+    for sku in skus:
+        s = (sku or "").strip().upper()
+        if not s:
+            continue
+        # Count exact substring occurrences (SKU tokens can contain punctuation so word-boundaries are unreliable).
+        out[s] = len(re.findall(re.escape(s), hay))
+    return out
+
+
+def _sanitize_sku_for_score_name(sku: str) -> str:
+    import re
+
+    s = (sku or "").strip().upper()
+    if not s:
+        return "UNKNOWN"
+
+    # Score names should be stable and safe across Langfuse backends/exports.
+    s = re.sub(r"[^A-Z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    if not s:
+        return "UNKNOWN"
+    return s[:80]
+
+
+def _langfuse_score_sku_counts(span: Any, *, query: str, answer: str, skus: list[str]) -> None:
+    if span is None or not skus:
+        return
+
+    score_fn = getattr(span, "score_trace", None)
+    if not callable(score_fn):
+        return
+
+    query_counts = _sku_counts_in_text(query, skus)
+    answer_counts = _sku_counts_in_text(answer, skus)
+
+    total_query = 0
+    total_answer = 0
+    for sku in skus:
+        sku_norm = (sku or "").strip().upper()
+        if not sku_norm:
+            continue
+        safe = _sanitize_sku_for_score_name(sku_norm)
+        qn = int(query_counts.get(sku_norm, 0))
+        an = int(answer_counts.get(sku_norm, 0))
+        total_query += qn
+        total_answer += an
+        try:
+            score_fn(
+                name=f"sku_query_count__{safe}",
+                value=float(qn),
+                data_type="NUMERIC",
+                metadata={"sku": sku_norm},
+            )
+        except Exception:
+            pass
+        try:
+            score_fn(
+                name=f"sku_answer_count__{safe}",
+                value=float(an),
+                data_type="NUMERIC",
+                metadata={"sku": sku_norm},
+            )
+        except Exception:
+            pass
+
+    try:
+        score_fn(name="sku_query_count__TOTAL", value=float(total_query), data_type="NUMERIC")
+    except Exception:
+        pass
+    try:
+        score_fn(name="sku_answer_count__TOTAL", value=float(total_answer), data_type="NUMERIC")
+    except Exception:
+        pass
 
 
 def _extract_openrouter_stream_delta(event: Any) -> str:
@@ -407,6 +523,7 @@ def chat(req: ChatRequest) -> ChatResponse:
 
     if span is not None:
         try:
+            skus_in_user_query = _extract_skus_from_query(query)
             span.update(
                 input={
                     "query": query,
@@ -414,6 +531,8 @@ def chat(req: ChatRequest) -> ChatResponse:
                     "enriched_query": enriched_query,
                     "history_len": len(history),
                     "skus": _extract_skus_from_query(search_query),
+                    "skus_in_user_query": skus_in_user_query,
+                    "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
                 }
             )
         except Exception:
@@ -471,6 +590,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             fused = merged
 
     retrieved_chunks = [_normalize_source(dict(item.payload or {}), score=float(item.score)) for item in fused]
+    retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
     context_str = build_context_str(retrieved_chunks)
     system_prompt = build_system_prompt(context_str)
 
@@ -496,11 +616,18 @@ def chat(req: ChatRequest) -> ChatResponse:
                     "top_n": top_n,
                     "retrieved_count": len(retrieved_chunks),
                     "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
-                    "retrieved_skus": sorted(
-                        {str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")}
-                    ),
+                    "retrieved_skus": retrieved_skus,
+                    "sku_counts_in_answer": _sku_counts_in_text(answer, retrieved_skus),
                 }
             )
+        except Exception:
+            pass
+        try:
+            _langfuse_score_sku_counts(span, query=query, answer=answer, skus=retrieved_skus)
+        except Exception:
+            pass
+        try:
+            _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=retrieved_skus)
         except Exception:
             pass
         try:
@@ -556,6 +683,7 @@ def chat_stream(req: ChatRequest):
 
             if span is not None:
                 try:
+                    skus_in_user_query = _extract_skus_from_query(query)
                     span.update(
                         input={
                             "query": query,
@@ -563,6 +691,8 @@ def chat_stream(req: ChatRequest):
                             "enriched_query": enriched_query,
                             "history_len": len(history),
                             "skus": _extract_skus_from_query(search_query),
+                            "skus_in_user_query": skus_in_user_query,
+                            "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
                         }
                     )
                 except Exception:
@@ -627,6 +757,7 @@ def chat_stream(req: ChatRequest):
                     fused = merged
 
             retrieved_chunks = [_normalize_source(dict(item.payload or {}), score=float(item.score)) for item in fused]
+            retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
 
             context_str = build_context_str(retrieved_chunks)
             system_prompt = build_system_prompt(context_str)
@@ -678,11 +809,27 @@ def chat_stream(req: ChatRequest):
                             "top_n": top_n,
                             "retrieved_count": len(retrieved_chunks),
                             "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
-                            "retrieved_skus": sorted(
-                                {str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")}
-                            ),
+                            "retrieved_skus": retrieved_skus,
                         }
                     )
+                except Exception:
+                    pass
+                try:
+                    span.update(
+                        output={
+                            "answer": full[:20000],
+                            "answer_truncated": len(full) > 20000,
+                            "sku_counts_in_answer": _sku_counts_in_text(full, retrieved_skus),
+                        }
+                    )
+                except Exception:
+                    pass
+                try:
+                    _langfuse_score_sku_counts(span, query=query, answer=full, skus=retrieved_skus)
+                except Exception:
+                    pass
+                try:
+                    _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=retrieved_skus)
                 except Exception:
                     pass
                 try:
