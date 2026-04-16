@@ -121,6 +121,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [voiceMode, setVoiceMode] = useState<"idle" | "recording" | "processing">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
 
@@ -452,66 +453,122 @@ export default function Home() {
                       <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
                     </div>
                   )}
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                      m.role === "user"
-                        ? "bg-brand-600 text-white"
-                        : "border border-slate-200 bg-white text-slate-700"
-                    }`}
-                  >
-                    {m.role === "assistant" ? (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        className="space-y-2"
-                        components={{
-                          p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
-                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                          ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
-                          ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
-                          code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>
-                        }}
-                      >
-                        {m.content || ""}
-                      </ReactMarkdown>
-                    ) : (
-                      <div className="whitespace-pre-wrap">{m.content}</div>
-                    )}
+                  <div className="flex w-full max-w-[85%] flex-col gap-1">
+                    <div
+                      className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                        m.role === "user"
+                          ? "ml-auto bg-brand-600 text-white"
+                          : "border border-slate-200 bg-white text-slate-700"
+                      }`}
+                    >
+                      {m.role === "assistant" ? (
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          className="space-y-2"
+                          components={{
+                            p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                            ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+                            ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+                            code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>
+                          }}
+                        >
+                          {m.content || ""}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+                      )}
 
-                    {m.role === "assistant" && m.sources && m.sources.length > 0 && (
-                      <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                        <summary className="cursor-pointer text-xs font-semibold text-slate-600">
-                          Source documents ({m.sources.length})
-                        </summary>
-                        <div className="mt-2 space-y-2">
-                          <div className="space-y-2 pt-1">
-                            {m.sources.slice(0, 8).map((s, sIdx) => {
-                              const meta = (s.metadata ?? {}) as Record<string, unknown>;
-                              const physical = meta.physical_page_number ?? meta.page_number;
-                              const sku = meta.sku;
-                              const brand = meta.brand;
-                              const chunkType = meta.chunk_type;
-                              const parts: string[] = [];
-                              if (typeof physical !== "undefined") parts.push(`Physical Page ${String(physical)}`);
-                              if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
-                              if (typeof brand === "string" && brand) parts.push(String(brand));
-                              if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
-                              if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
+                      {m.role === "assistant" && m.sources && m.sources.length > 0 && (
+                        <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                          <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+                            Source documents ({m.sources.length})
+                          </summary>
+                          <div className="mt-2 space-y-2">
+                            <div className="space-y-2 pt-1">
+                              {m.sources.slice(0, 8).map((s, sIdx) => {
+                                const meta = (s.metadata ?? {}) as Record<string, unknown>;
+                                const physical = meta.physical_page_number ?? meta.page_number;
+                                const sku = meta.sku;
+                                const brand = meta.brand;
+                                const chunkType = meta.chunk_type;
+                                const parts: string[] = [];
+                                if (typeof physical !== "undefined") parts.push(`Physical Page ${String(physical)}`);
+                                if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
+                                if (typeof brand === "string" && brand) parts.push(String(brand));
+                                if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
+                                if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
 
-                              return (
-                                <div key={s.chunk_id ?? `${m.id}-${sIdx}`} className="rounded-md bg-white px-3 py-2">
-                                  <div className="text-[11px] font-semibold text-slate-700">
-                                    {parts.length ? parts.join(" - ") : "Source"}
+                                return (
+                                  <div key={s.chunk_id ?? `${m.id}-${sIdx}`} className="rounded-md bg-white px-3 py-2">
+                                    <div className="text-[11px] font-semibold text-slate-700">
+                                      {parts.length ? parts.join(" - ") : "Source"}
+                                    </div>
+                                    {s.text && <div className="mt-1 text-[11px] text-slate-600">{s.text}</div>}
                                   </div>
-                                  {s.text && <div className="mt-1 text-[11px] text-slate-600">{s.text}</div>}
-                                </div>
-                              );
-                            })}
-                            {m.sources.length > 8 && (
-                              <div className="text-[11px] text-slate-500">Showing first 8 sources.</div>
-                            )}
+                                );
+                              })}
+                              {m.sources.length > 8 && (
+                                <div className="text-[11px] text-slate-500">Showing first 8 sources.</div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      </details>
+                        </details>
+                      )}
+                    </div>
+                    
+                    {m.role === "assistant" && (
+                      <div className="relative ml-2 flex items-center">
+                        <button
+                          onClick={() => setOpenMenuId(openMenuId === m.id ? null : m.id)}
+                          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                          title="More options"
+                        >
+                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                            <circle cx="5" cy="12" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="19" cy="12" r="2" />
+                          </svg>
+                        </button>
+                        {openMenuId === m.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+                            <div className="absolute left-0 top-8 z-20 w-48 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
+                              <button
+                                onClick={() => {
+                                  navigator.clipboard.writeText(m.content);
+                                  setOpenMenuId(null);
+                                }}
+                                className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
+                              >
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                                Copy Response
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                  if (typeof window !== "undefined" && (window as any).Userback) {
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    (window as any).Userback.open("feedback");
+                                  } else {
+                                    alert("Feedback widget is not loaded yet.");
+                                  }
+                                }}
+                                className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
+                              >
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                </svg>
+                                Send Feedback
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
