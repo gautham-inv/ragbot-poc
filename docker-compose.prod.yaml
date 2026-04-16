@@ -1,0 +1,56 @@
+services:
+  auth-db:
+    image: postgres:15-alpine
+    container_name: ragbot_auth_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: ragbot_auth
+    ports:
+      # Expose only to localhost for Caddy/Server security
+      - "127.0.0.1:15432:5432"
+    restart: always
+
+  auth-server:
+    build:
+      context: ../auth-server
+      dockerfile: Dockerfile
+    container_name: ragbot_auth_server
+    ports:
+      # Expose to localhost so Caddy can proxy to it
+      - "127.0.0.1:4000:4000"
+    environment:
+      - DATABASE_URL=postgresql://admin:secure_password@auth-db:5432/ragbot_auth?schema=public
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
+      - BETTER_AUTH_URL=https://gloriapets-chatbot.innovin.win
+    depends_on:
+      - auth-db
+    restart: always
+
+  ragbot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: ragbot_api
+    ports:
+      # Expose to localhost so Caddy can proxy to it
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    restart: always
+
+  ragbot-web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: ragbot_web
+    ports:
+      # Expose to localhost so Caddy can proxy to it
+      - "127.0.0.1:3000:3000"
+    environment:
+      - NEXT_PUBLIC_AUTH_URL=https://gloriapets-chatbot.innovin.win
+      - NEXT_PUBLIC_API_BASE_URL=https://gloriapets-chatbot.innovin.win
+    depends_on:
+      - auth-server
+      - ragbot-api
+    restart: always

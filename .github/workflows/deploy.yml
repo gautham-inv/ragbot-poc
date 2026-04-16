@@ -29,24 +29,11 @@ jobs:
           ssh-keyscan -H ${DEPLOY_HOST} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Deploy (git pull + deps)
+      - name: Deploy (git pull)
         run: |
           ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && git pull origin main"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && . .venv/bin/activate && pip install -r requirements.txt"
 
-      - name: Build Web UI
+      - name: Deploy with Docker Compose
         run: |
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH}/web && npm install"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH}/web && NEXT_PUBLIC_API_BASE_URL=${API_BASE_URL} npm run build"
-
-      - name: Install systemd units (first run only)
-        run: |
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo cp ${DEPLOY_PATH}/deploy/systemd/ragbot-api.service /etc/systemd/system/ragbot-api.service"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo cp ${DEPLOY_PATH}/deploy/systemd/ragbot-web.service /etc/systemd/system/ragbot-web.service"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl daemon-reload"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl enable ragbot-api ragbot-web"
-
-      - name: Restart services
-        run: |
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl restart ragbot-api"
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "sudo systemctl restart ragbot-web"
+          # Build and launch all containers defined in the production config
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && docker-compose -f docker-compose.prod.yaml up -d --build"

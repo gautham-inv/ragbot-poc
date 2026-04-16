@@ -1,0 +1,30 @@
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+# Adding general tools that might be needed by docling or pytesseract (e.g., tesseract-ocr)
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libgl1-mesa-glx \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
+
+# Expose the API port
+EXPOSE 8000
+
+# Set environment variables for Python
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Command to run the application (assuming the structure is backend/app.py)
+CMD ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "8000"]
