@@ -36,4 +36,4 @@ jobs:
       - name: Deploy with Docker Compose
         run: |
           # Build and launch all containers defined in the production config
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && docker-compose -f docker-compose.prod.yaml up -d --build"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yaml up -d --build"
