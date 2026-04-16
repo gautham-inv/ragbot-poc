@@ -1,7 +1,8 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -312,6 +313,91 @@ def _langfuse_score_sku_counts(span: Any, *, query: str, answer: str, skus: list
         pass
 
 
+def _langfuse_score_numeric(span: Any, name: str, value: float) -> None:
+    if span is None:
+        return
+    score_fn = getattr(span, "score_trace", None)
+    if not callable(score_fn):
+        return
+    try:
+        score_fn(name=name, value=float(value), data_type="NUMERIC")
+    except Exception:
+        pass
+
+
+_DEFAULT_ALLOWED_INTENTS = [
+    "barcode_lookup",
+    "product_search",
+    "order_status",
+    "general_qa",
+]
+
+
+def _get_allowed_intents() -> list[str]:
+    import json
+
+    raw = (os.getenv("ALLOWED_INTENTS") or "").strip()
+    if not raw:
+        return list(_DEFAULT_ALLOWED_INTENTS)
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            out: list[str] = []
+            for v in data:
+                if isinstance(v, str) and v.strip() and v.strip() not in out:
+                    out.append(v.strip())
+            return out or list(_DEFAULT_ALLOWED_INTENTS)
+    except Exception:
+        pass
+    return list(_DEFAULT_ALLOWED_INTENTS)
+
+
+def _route_intent_and_language(query: str) -> tuple[str, str, float]:
+    """
+    Returns (intent, language_code, confidence).
+
+    Best-effort: if routing fails, returns ("unknown", "unknown", 0.0).
+    """
+    import json
+
+    allowed_intents = _get_allowed_intents()
+    model = os.getenv("OPENROUTER_INTENT_MODEL", os.getenv("OPENROUTER_REWRITE_MODEL", "qwen/qwen-turbo"))
+
+    system = (
+        "You are a classifier for a product-catalog assistant.\n"
+        "Return ONLY valid JSON with keys: intent, language, confidence.\n"
+        f"Allowed intents (choose exactly one): {json.dumps(allowed_intents, ensure_ascii=False)}\n"
+        "language: 2-letter ISO code if possible (e.g. en, es, hi). Use 'unknown' if unsure.\n"
+        "confidence: number from 0.0 to 1.0.\n"
+    )
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": (query or "").strip()},
+    ]
+
+    raw = _openrouter_chat(messages, model=model)
+    raw = (raw or "").strip()
+
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("intent router output not a dict")
+        intent = str(data.get("intent") or "").strip()
+        language = str(data.get("language") or "").strip().lower()
+        confidence = float(data.get("confidence") or 0.0)
+        if intent not in allowed_intents:
+            intent = "unknown"
+        if not language or len(language) > 8:
+            language = "unknown"
+        if confidence < 0.0:
+            confidence = 0.0
+        if confidence > 1.0:
+            confidence = 1.0
+        return intent, language, confidence
+    except Exception:
+        return "unknown", "unknown", 0.0
+
+
 def _extract_openrouter_stream_delta(event: Any) -> str:
     # The OpenRouter SDK returns a mix of event types depending on mode/version:
     # - raw strings
@@ -506,147 +592,213 @@ def chat(req: ChatRequest) -> ChatResponse:
         except Exception:
             span = None
 
-    bm25_bundle = _get_bm25_bundle()
-    bm25 = bm25_bundle["bm25"]
-    bm25_chunks = bm25_bundle["chunks"]
-    product_dictionary = bm25_bundle.get("product_dictionary", {}) or {}
+    intent = "unknown"
+    language = "unknown"
+    intent_confidence = 0.0
+    retrieval_latency_ms = 0.0
+    retrieval_success = False
+    fallback_triggered = False
+    fallback_reason: str | None = None
+    no_result = False
+    basics_scored = False
 
     top_k = req.top_k or 8
     top_n = req.top_n or 4
-
-    client = _get_qdrant_client()
-    model = _get_embedder()
-
     history = req.history or []
-    search_query = _rewrite_query_with_history(query, history)
-    enriched_query = enrich_query_with_product_names(search_query, product_dictionary)
+    search_query = ""
+    enriched_query = ""
+    retrieved_chunks: list[dict[str, Any]] = []
+    retrieved_skus: list[str] = []
+    answer = ""
 
-    if span is not None:
+    try:
         try:
-            skus_in_user_query = _extract_skus_from_query(query)
-            span.update(
-                input={
-                    "query": query,
-                    "rewritten_query": search_query,
-                    "enriched_query": enriched_query,
-                    "history_len": len(history),
-                    "skus": _extract_skus_from_query(search_query),
-                    "skus_in_user_query": skus_in_user_query,
-                    "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
-                }
-            )
+            intent, language, intent_confidence = _route_intent_and_language(query)
         except Exception:
-            pass
+            intent, language, intent_confidence = "unknown", "unknown", 0.0
 
-    vec = qdrant_search(
-        client,
-        os.getenv("QDRANT_COLLECTION", "catalog_es"),
-        model,
-        enriched_query,
-        top_k=top_k,
-    )
-    kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k)
-    fused = reciprocal_rank_fusion(vec, kw, top_n=top_n)
+        bm25_bundle = _get_bm25_bundle()
+        bm25 = bm25_bundle["bm25"]
+        bm25_chunks = bm25_bundle["chunks"]
+        product_dictionary = bm25_bundle.get("product_dictionary", {}) or {}
 
-    skus_in_query = _extract_skus_from_query(enriched_query)
+        client = _get_qdrant_client()
+        model = _get_embedder()
 
-    # If we didn't pull enough concrete product rows for a broad query, do a second pass
-    # restricted to product SKU rows and merge results (generic improvement; not domain-specific).
-    if not skus_in_query:
-        product_rows = 0
-        for it in fused:
-            payload = dict(it.payload or {})
-            if _source_chunk_type(payload) == "product_sku_row":
-                product_rows += 1
-        if product_rows < max(2, top_n // 2):
+        search_query = _rewrite_query_with_history(query, history)
+        enriched_query = enrich_query_with_product_names(search_query, product_dictionary)
+
+        if span is not None:
             try:
-                from qdrant_client.http.models import FieldCondition, Filter, MatchValue
-
-                flt = Filter(must=[FieldCondition(key="chunk_type", match=MatchValue(value="product_sku_row"))])
-                vec2 = qdrant_search(
-                    client,
-                    os.getenv("QDRANT_COLLECTION", "catalog_es"),
-                    model,
-                    enriched_query,
-                    top_k=top_k,
-                    qdrant_filter=flt,
+                skus_in_user_query = _extract_skus_from_query(query)
+                span.update(
+                    input={
+                        "query": query,
+                        "intent": intent,
+                        "intent_confidence": intent_confidence,
+                        "user_language": language,
+                        "rewritten_query": search_query,
+                        "enriched_query": enriched_query,
+                        "history_len": len(history),
+                        "skus": _extract_skus_from_query(search_query),
+                        "skus_in_user_query": skus_in_user_query,
+                        "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
+                    }
                 )
             except Exception:
-                vec2 = []
+                pass
 
-            kw2 = [it for it in bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k * 4) if _source_chunk_type(dict(it.payload or {})) == "product_sku_row"][:top_k]
-            fused2 = reciprocal_rank_fusion(vec2, kw2, top_n=top_n * 2)
+        t0 = time.perf_counter()
+        vec = qdrant_search(
+            client,
+            os.getenv("QDRANT_COLLECTION", "catalog_es"),
+            model,
+            enriched_query,
+            top_k=top_k,
+        )
+        kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k)
+        fused = reciprocal_rank_fusion(vec, kw, top_n=top_n)
 
-            seen: set[str] = set()
-            merged: list[Any] = []
-            for it in list(fused) + list(fused2):
-                cid = _source_chunk_id(dict(it.payload or {})) or it.id
-                if cid in seen:
-                    continue
-                seen.add(cid)
-                merged.append(it)
-                if len(merged) >= top_n:
-                    break
-            fused = merged
+        skus_in_query = _extract_skus_from_query(enriched_query)
 
-    retrieved_chunks = [_normalize_source(dict(item.payload or {}), score=float(item.score)) for item in fused]
-    retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
-    context_str = build_context_str(retrieved_chunks)
-    system_prompt = build_system_prompt(context_str)
+        if not skus_in_query:
+            product_rows = 0
+            for it in fused:
+                payload = dict(it.payload or {})
+                if _source_chunk_type(payload) == "product_sku_row":
+                    product_rows += 1
+            if product_rows < max(2, top_n // 2):
+                try:
+                    from qdrant_client.http.models import FieldCondition, Filter, MatchValue
 
-    llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
-    max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
-    cleaned_history: list[dict[str, str]] = []
-    for m in history[-max_history:]:
-        role = (m.get("role") or "").strip()
-        content = (m.get("content") or "").strip()
-        if role in {"user", "assistant"} and content:
-            cleaned_history.append({"role": role, "content": content})
+                    flt = Filter(must=[FieldCondition(key="chunk_type", match=MatchValue(value="product_sku_row"))])
+                    vec2 = qdrant_search(
+                        client,
+                        os.getenv("QDRANT_COLLECTION", "catalog_es"),
+                        model,
+                        enriched_query,
+                        top_k=top_k,
+                        qdrant_filter=flt,
+                    )
+                except Exception:
+                    vec2 = []
 
-    answer_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    answer_messages.extend(cleaned_history)
-    answer_messages.append({"role": "user", "content": query})
-    answer = _openrouter_chat(answer_messages, model=llm_model)
+                kw2 = [
+                    it
+                    for it in bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k * 4)
+                    if _source_chunk_type(dict(it.payload or {})) == "product_sku_row"
+                ][:top_k]
+                fused2 = reciprocal_rank_fusion(vec2, kw2, top_n=top_n * 2)
 
-    if span is not None:
-        try:
-            span.update(
-                output={
-                    "top_k": top_k,
-                    "top_n": top_n,
-                    "retrieved_count": len(retrieved_chunks),
-                    "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
-                    "retrieved_skus": retrieved_skus,
-                    "sku_counts_in_answer": _sku_counts_in_text(answer, retrieved_skus),
-                }
-            )
-        except Exception:
-            pass
-        try:
-            _langfuse_score_sku_counts(span, query=query, answer=answer, skus=retrieved_skus)
-        except Exception:
-            pass
-        try:
-            _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=retrieved_skus)
-        except Exception:
-            pass
-        try:
-            span.end()
-        except Exception:
-            pass
+                seen: set[str] = set()
+                merged: list[Any] = []
+                for it in list(fused) + list(fused2):
+                    cid = _source_chunk_id(dict(it.payload or {})) or it.id
+                    if cid in seen:
+                        continue
+                    seen.add(cid)
+                    merged.append(it)
+                    if len(merged) >= top_n:
+                        break
+                fused = merged
 
-    if langfuse:
-        try:
-            langfuse.flush()
-        except Exception:
-            pass
+        retrieved_chunks = [_normalize_source(dict(item.payload or {}), score=float(item.score)) for item in fused]
+        retrieval_latency_ms = (time.perf_counter() - t0) * 1000.0
 
-    return ChatResponse(
-        answer=answer,
-        sources=retrieved_chunks,
-        rewritten_query=search_query,
-        enriched_query=enriched_query,
-    )
+        retrieved_skus = sorted(
+            {str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")}
+        )
+        retrieval_success = len(retrieved_chunks) > 0
+
+        if not retrieval_success:
+            fallback_triggered = True
+            fallback_reason = "no_results"
+            no_result = True
+
+        context_str = build_context_str(retrieved_chunks)
+        system_prompt = build_system_prompt(context_str)
+
+        llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
+        max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
+        cleaned_history: list[dict[str, str]] = []
+        for m in history[-max_history:]:
+            role = (m.get("role") or "").strip()
+            content = (m.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                cleaned_history.append({"role": role, "content": content})
+
+        answer_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+        answer_messages.extend(cleaned_history)
+        answer_messages.append({"role": "user", "content": query})
+        answer = _openrouter_chat(answer_messages, model=llm_model)
+
+        if span is not None:
+            try:
+                span.update(
+                    output={
+                        "top_k": top_k,
+                        "top_n": top_n,
+                        "retrieval_latency_ms": round(float(retrieval_latency_ms), 3),
+                        "retrieval_success": bool(retrieval_success),
+                        "retrieved_count": len(retrieved_chunks),
+                        "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
+                        "retrieved_skus": retrieved_skus,
+                        "answer": (answer or "")[:20000],
+                        "answer_truncated": len((answer or "")) > 20000,
+                        "sku_counts_in_answer": _sku_counts_in_text(answer, retrieved_skus),
+                        "fallback_triggered": bool(fallback_triggered),
+                        "fallback_reason": fallback_reason,
+                        "no_result": bool(no_result),
+                    }
+                )
+            except Exception:
+                pass
+            try:
+                _langfuse_score_sku_counts(span, query=query, answer=answer, skus=retrieved_skus)
+            except Exception:
+                pass
+            _langfuse_score_numeric(span, "retrieval_count", float(len(retrieved_chunks)))
+            _langfuse_score_numeric(span, "retrieval_latency_ms", float(retrieval_latency_ms))
+            _langfuse_score_numeric(span, "fallback_triggered", 1.0 if fallback_triggered else 0.0)
+            _langfuse_score_numeric(span, "no_result", 1.0 if no_result else 0.0)
+            basics_scored = True
+    except Exception:
+        fallback_triggered = True
+        fallback_reason = "system_error"
+        no_result = True
+        retrieval_success = False
+        raise
+    finally:
+        if span is not None:
+            try:
+                if not basics_scored:
+                    _langfuse_score_numeric(span, "fallback_triggered", 1.0 if fallback_triggered else 0.0)
+                    _langfuse_score_numeric(span, "no_result", 1.0 if no_result else 0.0)
+                    basics_scored = True
+                tags = [
+                    f"intent:{intent or 'unknown'}",
+                    f"lang:{language or 'unknown'}",
+                    f"fallback:{'true' if fallback_triggered else 'false'}",
+                    f"no_result:{'true' if no_result else 'false'}",
+                    f"retrieval_success:{'true' if retrieval_success else 'false'}",
+                ]
+                if fallback_triggered and fallback_reason:
+                    tags.append(f"fallback_reason:{fallback_reason}")
+                _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=tags)
+            except Exception:
+                pass
+            try:
+                span.end()
+            except Exception:
+                pass
+
+        if langfuse:
+            try:
+                langfuse.flush()
+            except Exception:
+                pass
+
+    return ChatResponse(answer=answer, sources=retrieved_chunks, rewritten_query=search_query, enriched_query=enriched_query)
 
 
 @app.post("/api/chat_stream")
@@ -663,6 +815,15 @@ def chat_stream(req: ChatRequest):
                 span = langfuse.start_observation(as_type="span", name="api_chat_stream")
             except Exception:
                 span = None
+
+        intent = "unknown"
+        language = "unknown"
+        intent_confidence = 0.0
+        retrieval_latency_ms = 0.0
+        retrieval_success = False
+        fallback_triggered = False
+        fallback_reason: str | None = None
+        no_result = False
         try:
             bm25_bundle = _get_bm25_bundle()
             bm25 = bm25_bundle["bm25"]
@@ -674,7 +835,12 @@ def chat_stream(req: ChatRequest):
 
             history = req.history or []
 
-            yield _sse({"type": "status", "message": "Rewriting your query…"})
+            try:
+                intent, language, intent_confidence = _route_intent_and_language(query)
+            except Exception:
+                intent, language, intent_confidence = "unknown", "unknown", 0.0
+
+            yield _sse({"type": "status", "message": "Rewriting your queryâ€¦"})
             search_query = _rewrite_query_with_history(query, history)
             yield _sse({"type": "rewrite", "rewritten_query": search_query})
 
@@ -687,6 +853,9 @@ def chat_stream(req: ChatRequest):
                     span.update(
                         input={
                             "query": query,
+                            "intent": intent,
+                            "intent_confidence": intent_confidence,
+                            "user_language": language,
                             "rewritten_query": search_query,
                             "enriched_query": enriched_query,
                             "history_len": len(history),
@@ -698,9 +867,10 @@ def chat_stream(req: ChatRequest):
                 except Exception:
                     pass
 
-            yield _sse({"type": "status", "message": "Searching source documents…"})
+            yield _sse({"type": "status", "message": "Searching source documentsâ€¦"})
             client = _get_qdrant_client()
             embedder = _get_embedder()
+            t0 = time.perf_counter()
             vec = qdrant_search(
                 client,
                 os.getenv("QDRANT_COLLECTION", "catalog_es"),
@@ -710,7 +880,7 @@ def chat_stream(req: ChatRequest):
             )
             kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k)
 
-            yield _sse({"type": "status", "message": "Fusing results…"})
+            yield _sse({"type": "status", "message": "Fusing resultsâ€¦"})
             fused = reciprocal_rank_fusion(vec, kw, top_n=top_n)
 
             skus_in_query = _extract_skus_from_query(enriched_query)
@@ -757,12 +927,18 @@ def chat_stream(req: ChatRequest):
                     fused = merged
 
             retrieved_chunks = [_normalize_source(dict(item.payload or {}), score=float(item.score)) for item in fused]
+            retrieval_latency_ms = (time.perf_counter() - t0) * 1000.0
+            retrieval_success = len(retrieved_chunks) > 0
+            if not retrieval_success:
+                fallback_triggered = True
+                fallback_reason = "no_results"
+                no_result = True
             retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
 
             context_str = build_context_str(retrieved_chunks)
             system_prompt = build_system_prompt(context_str)
 
-            yield _sse({"type": "status", "message": "Generating answer…"})
+            yield _sse({"type": "status", "message": "Generating answerâ€¦"})
             llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
             max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
             cleaned_history: list[dict[str, str]] = []
@@ -803,15 +979,20 @@ def chat_stream(req: ChatRequest):
 
             if span is not None:
                 try:
-                    span.update(
-                        output={
-                            "top_k": top_k,
-                            "top_n": top_n,
-                            "retrieved_count": len(retrieved_chunks),
-                            "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
-                            "retrieved_skus": retrieved_skus,
-                        }
-                    )
+                        span.update(
+                            output={
+                                "top_k": top_k,
+                                "top_n": top_n,
+                                "retrieval_latency_ms": round(float(retrieval_latency_ms), 3),
+                                "retrieval_success": bool(retrieval_success),
+                                "retrieved_count": len(retrieved_chunks),
+                                "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
+                                "retrieved_skus": retrieved_skus,
+                                "fallback_triggered": bool(fallback_triggered),
+                                "fallback_reason": fallback_reason,
+                                "no_result": bool(no_result),
+                            }
+                        )
                 except Exception:
                     pass
                 try:
@@ -824,14 +1005,30 @@ def chat_stream(req: ChatRequest):
                     )
                 except Exception:
                     pass
-                try:
-                    _langfuse_score_sku_counts(span, query=query, answer=full, skus=retrieved_skus)
-                except Exception:
-                    pass
-                try:
-                    _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=retrieved_skus)
-                except Exception:
-                    pass
+                    try:
+                        _langfuse_score_sku_counts(span, query=query, answer=full, skus=retrieved_skus)
+                    except Exception:
+                        pass
+                    try:
+                        _langfuse_score_numeric(span, "retrieval_count", float(len(retrieved_chunks)))
+                        _langfuse_score_numeric(span, "retrieval_latency_ms", float(retrieval_latency_ms))
+                        _langfuse_score_numeric(span, "fallback_triggered", 1.0 if fallback_triggered else 0.0)
+                        _langfuse_score_numeric(span, "no_result", 1.0 if no_result else 0.0)
+                    except Exception:
+                        pass
+                    try:
+                        tags = [
+                            f"intent:{intent or 'unknown'}",
+                            f"lang:{language or 'unknown'}",
+                            f"fallback:{'true' if fallback_triggered else 'false'}",
+                            f"no_result:{'true' if no_result else 'false'}",
+                            f"retrieval_success:{'true' if retrieval_success else 'false'}",
+                        ]
+                        if fallback_triggered and fallback_reason:
+                            tags.append(f"fallback_reason:{fallback_reason}")
+                        _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=tags)
+                    except Exception:
+                        pass
                 try:
                     span.end()
                 except Exception:
@@ -853,6 +1050,38 @@ def chat_stream(req: ChatRequest):
                 }
             )
         except Exception as e:
+            fallback_triggered = True
+            fallback_reason = "system_error"
+            no_result = True
+            retrieval_success = False
+            if span is not None:
+                try:
+                    _langfuse_score_numeric(span, "fallback_triggered", 1.0)
+                    _langfuse_score_numeric(span, "no_result", 1.0)
+                except Exception:
+                    pass
+                try:
+                    tags = [
+                        f"intent:{intent or 'unknown'}",
+                        f"lang:{language or 'unknown'}",
+                        "fallback:true",
+                        "no_result:true",
+                        "retrieval_success:false",
+                        "fallback_reason:system_error",
+                    ]
+                    _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=tags)
+                except Exception:
+                    pass
+                try:
+                    span.end()
+                except Exception:
+                    pass
+            if langfuse:
+                try:
+                    langfuse.flush()
+                except Exception:
+                    pass
             yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
