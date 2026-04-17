@@ -22,6 +22,7 @@ services:
       - DATABASE_URL=postgresql://admin:secure_password@auth-db:5432/ragbot_auth?schema=public
       - BETTER_AUTH_SECRET=local_dev_secret_key_1234
       - BETTER_AUTH_URL=http://localhost:4000
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:4000
     depends_on:
       - auth-db
     restart: unless-stopped

@@ -31,9 +31,15 @@ export async function middleware(request: NextRequest) {
   }
 
   // --- ADMIN SUBDOMAIN LOGIC ---
-  if (hostname.startsWith("admin.")) {
+  if (hostname === "admin-gp.innovin.win") {
+    // Allow access to the admin login page without an existing session.
+    if (url.pathname === "/login" || url.pathname.startsWith("/login/")) {
+      return NextResponse.rewrite(new URL(`/admin${url.pathname}`, request.url));
+    }
+
     const { data: session } = await betterFetch<AuthSession>(
-      `${process.env.NEXT_PUBLIC_AUTH_URL || "http://localhost:4000"}/api/auth/session`,
+      // Use same-origin auth endpoint (Caddy proxies `/api/auth/*` to auth-server).
+      new URL("/api/auth/session", request.nextUrl.origin).toString(),
       {
         baseURL: request.nextUrl.origin,
         headers: {
@@ -43,9 +49,10 @@ export async function middleware(request: NextRequest) {
     );
 
     if (!session || session.user.role !== "admin") {
-      // If not an admin, kick them back to the main domain to prevent an infinite redirect loop
-      const mainDomainUrl = request.nextUrl.origin.replace("admin.", "");
-      return NextResponse.redirect(`${mainDomainUrl}/`);
+      // Not logged in (or not an admin): send to admin login page.
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("next", url.pathname + url.search);
+      return NextResponse.redirect(loginUrl);
     }
 
     // Rewrite to the explicit /admin folder
