@@ -1,0 +1,21 @@
+.git
+.github
+.venv
+__pycache__
+**/__pycache__/
+**/*.pyc
+
+# Local artifacts / dumps
+excel_output*.json
+
+# Frontend build artifacts (not needed in API image)
+web/node_modules
+web/.next
+
+# OCR/raw source assets (not needed at runtime)
+data/raw
+
+# Keep runtime index files
+!data/index
+!data/index/**
+
