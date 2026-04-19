@@ -17,6 +17,9 @@ type AuthSession = {
   };
 };
 
+const AUTH_SERVER_URL =
+  process.env.AUTH_SERVER_INTERNAL_URL || "http://ragbot_auth_server:4000";
+
 export async function middleware(request: NextRequest) {
   const url = request.nextUrl;
   const hostname = request.headers.get("host") || "";
@@ -38,10 +41,8 @@ export async function middleware(request: NextRequest) {
     }
 
     const { data: session } = await betterFetch<AuthSession>(
-      // Use same-origin auth endpoint (Caddy proxies `/api/auth/*` to auth-server).
-      new URL("/api/auth/session", request.nextUrl.origin).toString(),
+      `${AUTH_SERVER_URL}/api/auth/get-session`,
       {
-        baseURL: request.nextUrl.origin,
         headers: {
           cookie: request.headers.get("cookie") || "",
         },
@@ -64,6 +65,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // Match all paths EXCEPT those starting with /api, /_next/static, /_next/image, favicon.ico, etc.
   matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
