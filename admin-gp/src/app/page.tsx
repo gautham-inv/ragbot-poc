@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   const fetchData = async (range: string) => {
     setLoading(true);
@@ -47,6 +48,7 @@ export default function Dashboard() {
       // This helps the user see the UI even if they haven't run any queries yet
     } finally {
       setLoading(false);
+      setShowSplash(false);
     }
   };
 
@@ -79,12 +81,25 @@ export default function Dashboard() {
 
   return (
     <main className="dashboard-container">
+      {showSplash ? (
+        <div className="splash-overlay" role="status" aria-live="polite" aria-label="Loading analytics">
+          <div className="splash-card">
+            <div className="spinner" aria-hidden="true" />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="heading-2">Loading analytics</div>
+              <div className="text-sm text-secondary" style={{ marginTop: '0.25rem' }}>
+                Fetching recent traces and aggregations.
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {/* Header */}
-      <header className="flex justify-between items-center mb-8" style={{ marginBottom: '2rem' }}>
+      <header className="flex flex-wrap justify-between items-center gap-4 mb-8" style={{ marginBottom: '2rem' }}>
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Image src="/paw.jpg" alt="Gloria Pets" width={26} height={26} priority />
-            <h1 className="heading-1">GloriaPets - Catalog Bot Analytics</h1>
+            <h1 className="heading-1" style={{ minWidth: 0 }}>GloriaPets - Catalog Bot Analytics</h1>
           </div>
           <div className="flex items-center gap-4 text-sm">
             <div className={`flex items-center gap-1 ${loading ? 'text-secondary' : 'text-success'}`}>
@@ -96,7 +111,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           {error && (
             <div className="flex items-center gap-1 text-xs text-critical bg-critical" style={{ background: 'rgba(239, 68, 68, 0.1)', padding: '0.25rem 0.75rem', borderRadius: '4px' }}>
               <AlertCircle size={14} />

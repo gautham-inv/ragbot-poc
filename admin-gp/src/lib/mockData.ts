@@ -64,7 +64,6 @@ export const intentBreakdownData = [
   { name: 'Product Search', value: 63, color: '#3b82f6' },
   { name: 'Barcode Lookup', value: 21, color: '#10b981' },
   { name: 'Price Check', value: 11, color: '#f59e0b' },
-  { name: 'Other', value: 5, color: '#94a3b8' },
 ];
 
 export const languageDistributionData = [

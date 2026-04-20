@@ -33,7 +33,6 @@ export const QueryVolumeChart: React.FC<ChartProps> = ({ data, title }) => (
           <Bar dataKey="product_search" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
           <Bar dataKey="barcode_lookup" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
           <Bar dataKey="price_check" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="other" stackId="a" fill="#94a3b8" radius={[2, 2, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -105,7 +104,7 @@ export const IntentDonutChart: React.FC<ChartProps> = ({ data, title }) => (
       <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
         <PieChart>
           <Pie
-            data={data}
+            data={data.filter((entry) => String(entry?.name ?? '').toLowerCase() !== 'other')}
             cx="50%"
             cy="50%"
             innerRadius={60}
@@ -113,7 +112,7 @@ export const IntentDonutChart: React.FC<ChartProps> = ({ data, title }) => (
             paddingAngle={5}
             dataKey="value"
           >
-            {data.map((entry, index) => (
+            {data.filter((entry) => String(entry?.name ?? '').toLowerCase() !== 'other').map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} />
             ))}
           </Pie>

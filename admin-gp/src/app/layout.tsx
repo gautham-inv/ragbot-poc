@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Gloria Pets | RAGBot Analytics",
   description: "Performance metrics and insights for the Gloria Pets catalog assistant.",
+  icons: {
+    icon: "/paw.jpg",
+  },
 };
 
 export default function RootLayout({
