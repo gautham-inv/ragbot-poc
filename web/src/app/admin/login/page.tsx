@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { signIn } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -19,7 +19,7 @@ function LoginContent() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await signIn.emailAndPassword({
+      const res = await signIn.email({
         email,
         password,
         callbackURL: nextPath,
@@ -79,12 +79,12 @@ function LoginContent() {
             type="submit"
             disabled={submitting}
           >
-            {submitting ? "Signing in…" : "Sign in"}
+            {submitting ? "Signing inâ€¦" : "Sign in"}
           </button>
         </form>
 
         <div className="mt-4 text-xs text-slate-500">
-          You’ll be redirected to <span className="font-mono">{nextPath}</span> after login.
+          Youâ€™ll be redirected to <span className="font-mono">{nextPath}</span> after login.
         </div>
       </div>
     </main>
@@ -102,4 +102,5 @@ export default function AdminLoginPage() {
     </Suspense>
   );
 }
+
 
