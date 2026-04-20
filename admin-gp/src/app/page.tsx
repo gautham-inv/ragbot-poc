@@ -16,13 +16,17 @@ import {
   recentQueries as mockRecent,
   languageDistributionData as mockLanguages
 } from '@/lib/mockData';
-import { RefreshCcw, AlertCircle } from 'lucide-react';
+import { signOut } from '@/lib/auth-client';
+import { AlertCircle, LogOut, RefreshCcw } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function Dashboard() {
+  const router = useRouter();
   const [timeRange, setTimeRange] = useState('24h');
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const fetchData = async (range: string) => {
     setLoading(true);
@@ -48,6 +52,20 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData(timeRange);
   }, [timeRange]);
+
+  const onLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      await signOut();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      router.replace("/login");
+      router.refresh();
+      setLoggingOut(false);
+    }
+  };
 
   const charts = data?.charts || {
     volume: mockVolume,
@@ -90,6 +108,15 @@ export default function Dashboard() {
           >
             <RefreshCcw size={14} className={loading ? 'animate-spin' : ''} />
             Refresh
+          </button>
+          <button
+            onClick={onLogout}
+            disabled={loggingOut}
+            className="btn-base btn-secondary-premium"
+            title="Log out"
+          >
+            <LogOut size={14} />
+            {loggingOut ? "Logging out..." : "Logout"}
           </button>
           <div className="toggle-group">
             {['24h', '7d', '30d'].map((range) => (
