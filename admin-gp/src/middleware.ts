@@ -27,6 +27,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Allow access to sign up without an existing session.
+  if (url.pathname === "/signup" || url.pathname.startsWith("/signup/")) {
+    return NextResponse.next();
+  }
+
   const { data: session } = await betterFetch<AuthSession>(
     `${AUTH_SERVER_URL}/api/auth/get-session`,
     {
