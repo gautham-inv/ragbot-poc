@@ -19,10 +19,10 @@ function LoginContent() {
     setError(null);
     setSubmitting(true);
     try {
-      const res = await (signIn as unknown as any).email({
+      const res = await signIn.emailAndPassword({
         email,
         password,
-        rememberMe: true,
+        callbackURL: nextPath,
       });
 
       if (res?.error) {
