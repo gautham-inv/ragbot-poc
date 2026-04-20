@@ -491,11 +491,21 @@ export default function Home() {
                                 const physical = meta.physical_page_number ?? meta.page_number;
                                 const sku = meta.sku;
                                 const brand = meta.brand;
+                                const category = meta.category;
+                                const subcategory = meta.subcategory;
+                                const priceEur = meta.price_eur ?? meta.price_pvpr;
                                 const chunkType = meta.chunk_type;
                                 const parts: string[] = [];
-                                if (typeof physical !== "undefined") parts.push(`Physical Page ${String(physical)}`);
-                                if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
                                 if (typeof brand === "string" && brand) parts.push(String(brand));
+                                if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
+                                if (typeof category === "string" && category) {
+                                  const cat = typeof subcategory === "string" && subcategory
+                                    ? `${category}/${subcategory}`
+                                    : String(category);
+                                  parts.push(cat);
+                                }
+                                if (typeof priceEur === "number") parts.push(`${priceEur}€`);
+                                if (typeof physical !== "undefined") parts.push(`Page ${String(physical)}`);
                                 if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
                                 if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
 
