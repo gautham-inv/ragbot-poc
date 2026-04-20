@@ -22,8 +22,8 @@ services:
     environment:
       - DATABASE_URL=postgresql://admin:secure_password@auth-db:5432/ragbot_auth?schema=public
       - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}
-      - BETTER_AUTH_URL=https://gloriapets-chatbot.innovin.win
-      - CORS_ORIGINS=https://gloriapets-chatbot.innovin.win,https://admin-gp.innovin.win
+      - BETTER_AUTH_URL=https://admin-gp.innovin.win
+      - CORS_ORIGINS=https://admin-gp.innovin.win
     depends_on:
       - auth-db
     restart: always
