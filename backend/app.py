@@ -24,6 +24,7 @@ from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
+from backend.tools import build_tool_system_prompt, run_tool_loop
 
 load_project_env()
 
@@ -1172,4 +1173,146 @@ def chat_stream(req: ChatRequest):
             yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Tool-calling chat endpoint
+# ---------------------------------------------------------------------------
+@app.post("/api/chat_tools", response_model=ChatResponse)
+def chat_tools(req: ChatRequest) -> ChatResponse:
+    """
+    LLM-with-tools chat. The model is given the catalog schema + 5 tools
+    (semantic_search, filter_scroll, count_products, get_product,
+    list_distinct_values) and decides which to call. Handles aggregation and
+    enumeration questions that pure RAG cannot answer.
+    """
+    query = (req.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    langfuse = _get_langfuse_client()
+    span = None
+    if langfuse is not None:
+        try:
+            span = langfuse.start_observation(as_type="span", name="api_chat_tools")
+        except Exception:
+            span = None
+
+    intent = "unknown"
+    language = "unknown"
+    intent_confidence = 0.0
+    tool_trace: list[dict[str, Any]] = []
+    retrieved_products: list[dict[str, Any]] = []
+    answer = ""
+    error: str | None = None
+
+    try:
+        try:
+            intent, language, intent_confidence = _route_intent_and_language(query)
+        except Exception:
+            pass
+
+        bm25_bundle = _get_bm25_bundle()
+        client = _get_qdrant_client()
+        embedder = _get_embedder()
+        collection = os.getenv("QDRANT_COLLECTION", "catalog_es")
+
+        if span is not None:
+            try:
+                span.update(
+                    input={
+                        "query": query,
+                        "intent": intent,
+                        "intent_confidence": intent_confidence,
+                        "user_language": language,
+                        "history_len": len(req.history or []),
+                        "skus_in_user_query": _extract_skus_from_query(query),
+                    }
+                )
+            except Exception:
+                pass
+
+        result = run_tool_loop(
+            user_query=query,
+            history=req.history,
+            system_prompt=build_tool_system_prompt(),
+            qdrant=client,
+            collection=collection,
+            embedder=embedder,
+            bm25=bm25_bundle["bm25"],
+            bm25_chunks=bm25_bundle["chunks"],
+        )
+        answer = result["answer"]
+        tool_trace = result["tool_trace"]
+        retrieved_products = result["retrieved_products"]
+
+    except Exception as e:
+        error = f"{type(e).__name__}: {e}"
+        answer = "No tengo esa información en el catálogo actual."
+
+    # Shape sources to match ChatResponse / frontend expectations.
+    sources: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for p in retrieved_products:
+        cid = str(p.get("id") or p.get("chunk_id") or "")
+        if cid and cid in seen_ids:
+            continue
+        if cid:
+            seen_ids.add(cid)
+        sources.append({
+            "chunk_id": cid,
+            "text": p.get("text") or "",
+            "metadata": p,
+            "score": 1.0,
+        })
+
+    # Langfuse output + scoring
+    if span is not None:
+        try:
+            span.update(
+                output={
+                    "answer": (answer or "")[:20000],
+                    "answer_truncated": len((answer or "")) > 20000,
+                    "model": (result if not error else {}).get("model") if not error else None,
+                    "rounds": (result if not error else {}).get("rounds") if not error else 0,
+                    "tool_trace": tool_trace,
+                    "retrieved_count": len(sources),
+                    "retrieved_brands": _extract_retrieved_brands(sources),
+                    "retrieved_categories": _extract_retrieved_categories(sources),
+                    "retrieved_subcategories": _extract_retrieved_subcategories(sources),
+                    "error": error,
+                }
+            )
+        except Exception:
+            pass
+        try:
+            tags = [
+                f"intent:{intent or 'unknown'}",
+                f"lang:{language or 'unknown'}",
+                f"path:tools",
+            ]
+            for t in tool_trace:
+                tags.append(f"tool:{t.get('name')}")
+            if error:
+                tags.append(f"fallback_reason:tool_loop_error")
+            _langfuse_add_trace_tags(langfuse, trace_id=getattr(span, "trace_id", None), tags=tags)
+        except Exception:
+            pass
+        try:
+            _langfuse_score_numeric(span, "retrieval_count", float(len(sources)))
+            _langfuse_score_numeric(span, "tool_rounds", float(len(tool_trace)))
+            _langfuse_score_numeric(span, "fallback_triggered", 1.0 if error else 0.0)
+        except Exception:
+            pass
+        try:
+            span.end()
+        except Exception:
+            pass
+    if langfuse:
+        try:
+            langfuse.flush()
+        except Exception:
+            pass
+
+    return ChatResponse(answer=answer, sources=sources)
 
