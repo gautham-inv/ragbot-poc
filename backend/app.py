@@ -233,6 +233,64 @@ def _extract_retrieved_pages(retrieved_chunks: list[dict[str, Any]]) -> list[str
     return sorted(pages)
 
 
+def _chunk_meta(c: dict[str, Any]) -> dict[str, Any]:
+    meta = c.get("metadata") if isinstance(c.get("metadata"), dict) else None
+    return meta if meta else c
+
+
+def _extract_retrieved_brands(retrieved_chunks: list[dict[str, Any]]) -> dict[str, int]:
+    """Per-trace counts of brands across the retrieved chunks, e.g. {'KONG': 3, 'HUNTER': 1}."""
+    counts: dict[str, int] = {}
+    for c in retrieved_chunks:
+        meta = _chunk_meta(c)
+        brand = meta.get("brand") or c.get("brand")
+        if not brand:
+            continue
+        key = str(brand).strip()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _extract_retrieved_categories(
+    retrieved_chunks: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Per-trace counts of categories across the retrieved chunks, e.g. {'accessories': 2, 'toys': 1}."""
+    counts: dict[str, int] = {}
+    for c in retrieved_chunks:
+        meta = _chunk_meta(c)
+        cat = meta.get("category") or c.get("category")
+        if not cat:
+            continue
+        key = str(cat).strip()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _extract_retrieved_subcategories(
+    retrieved_chunks: list[dict[str, Any]],
+) -> dict[str, int]:
+    """Per-trace counts of category/subcategory pairs, e.g. {'accessories/collar': 2, 'toys/ball': 1}."""
+    counts: dict[str, int] = {}
+    for c in retrieved_chunks:
+        meta = _chunk_meta(c)
+        cat = meta.get("category") or c.get("category")
+        sub = meta.get("subcategory") or c.get("subcategory")
+        if not cat and not sub:
+            continue
+        cat_s = str(cat).strip() if cat else ""
+        sub_s = str(sub).strip() if sub else ""
+        if cat_s and sub_s:
+            key = f"{cat_s}/{sub_s}"
+        elif cat_s:
+            key = cat_s
+        else:
+            key = sub_s
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def _sku_counts_in_text(text: str, skus: list[str]) -> dict[str, int]:
     import re
 
@@ -762,6 +820,9 @@ def chat(req: ChatRequest) -> ChatResponse:
                         "retrieval_success": bool(retrieval_success),
                         "retrieved_count": len(retrieved_chunks),
                         "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
+                        "retrieved_brands": _extract_retrieved_brands(retrieved_chunks),
+                        "retrieved_categories": _extract_retrieved_categories(retrieved_chunks),
+                        "retrieved_subcategories": _extract_retrieved_subcategories(retrieved_chunks),
                         "retrieved_skus": retrieved_skus,
                         "sku_product_names": sku_product_names,
                         "answer": (answer or "")[:20000],
@@ -1009,6 +1070,9 @@ def chat_stream(req: ChatRequest):
                                 "retrieval_success": bool(retrieval_success),
                                 "retrieved_count": len(retrieved_chunks),
                                 "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
+                                "retrieved_brands": _extract_retrieved_brands(retrieved_chunks),
+                                "retrieved_categories": _extract_retrieved_categories(retrieved_chunks),
+                                "retrieved_subcategories": _extract_retrieved_subcategories(retrieved_chunks),
                                 "retrieved_skus": retrieved_skus,
                                 "sku_product_names": sku_product_names,
                                 "fallback_triggered": bool(fallback_triggered),
