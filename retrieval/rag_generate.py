@@ -6,6 +6,7 @@ import os
 import sys
 import warnings
 from pathlib import Path
+from typing import Any
 
 # Ensure project root is on sys.path when executed as a script, and avoid
 # shadowing stdlib modules by the script directory (e.g. stale __pycache__/tokenize*.pyc).
@@ -91,26 +92,47 @@ def build_context_str(chunks: list[dict]) -> str:
             # Qdrant payloads are often already "flat".
             meta = c
 
-        physical_page = meta.get("physical_page_number") or meta.get("page_number") or c.get("physical_page_number") or c.get("page_number") or "?"
-        sub_page = meta.get("sub_page_number") or c.get("sub_page_number")
-        chunk_type = meta.get("chunk_type") or c.get("chunk_type") or "unknown"
-        sku = meta.get("sku") or c.get("sku")
-        brand = meta.get("brand") or c.get("brand")
-        product_name = meta.get("product_name") or c.get("product_name")
-        category = meta.get("category") or c.get("category")
-        chunk_id = meta.get("chunk_id") or c.get("chunk_id") or c.get("id")
+        def _get(k: str) -> Any:
+            return meta.get(k) if meta.get(k) is not None else c.get(k)
 
-        header_parts = [f"type={chunk_type}", f"Physical Page {physical_page}"]
-        if sub_page is not None:
-            header_parts.append(f"Sub-page {sub_page}")
-        if sku:
-            header_parts.append(f"SKU {sku}")
+        chunk_type = _get("chunk_type") or "unknown"
+        sku = _get("sku")
+        brand = _get("brand")
+        product_name = _get("product_name") or _get("name_es") or _get("name_en")
+        category = _get("category")
+        subcategory = _get("subcategory")
+        species = _get("species")
+        price_eur = _get("price_eur") if _get("price_eur") is not None else _get("price_pvpr")
+        size_label = _get("size_label")
+        chunk_id = _get("chunk_id") or c.get("id")
+
+        # OCR-era fallbacks (still present on pre-Excel collections):
+        physical_page = _get("physical_page_number") or _get("page_number")
+        sub_page = _get("sub_page_number")
+
+        header_parts = [f"type={chunk_type}"]
         if brand:
             header_parts.append(f"Brand {brand}")
-        if category:
-            header_parts.append(f"Category {category}")
+        if sku:
+            header_parts.append(f"SKU {sku}")
         if product_name:
             header_parts.append(f"Product {product_name}")
+        if category:
+            if subcategory:
+                header_parts.append(f"Category {category}/{subcategory}")
+            else:
+                header_parts.append(f"Category {category}")
+        if species:
+            species_str = "/".join(species) if isinstance(species, list) else str(species)
+            header_parts.append(f"Species {species_str}")
+        if size_label:
+            header_parts.append(f"Size {size_label}")
+        if price_eur is not None:
+            header_parts.append(f"Price {price_eur}€")
+        if physical_page is not None:
+            header_parts.append(f"Physical Page {physical_page}")
+            if sub_page is not None:
+                header_parts.append(f"Sub-page {sub_page}")
         if chunk_id:
             header_parts.append(f"id {chunk_id}")
 
@@ -135,41 +157,46 @@ def _extract_skus_from_query(query: str) -> set[str]:
     return out
 
 
-def _query_mentions_gloria_context(query: str) -> bool:
-    import re
+_BRAND_ENUM = {
+    "SKINNIA", "KVP", "PET HEAD", "CEVA", "CHIEN CHIC", "COACHI",
+    "COMPANY OF ANIMALS", "DGS", "3 CLAVELES", "ANDIS", "VAN CAT",
+    "MEN FOR SAN", "YOWUP", "LICKIMAT", "SPRENGER", "RED DINGO",
+    "CHEWLLAGEN", "KONG", "LICENCIADOS KONG", "FLEXI", "NYLABONE",
+    "ROTHO MYPET", "UNITED PETS", "EARTH RATED", "URINE OFF",
+    "VETIQ", "HUNTER", "INODORINA", "COCOSI", "WHIMZEES",
+}
 
-    q = (query or "").lower()
-    # Avoid false positives for the distributor name ("gloriapets", "gloria pets", etc.)
-    if re.search(r"\bgloria\s*pets\b", q) or re.search(r"\bgloriapets\b", q) or re.search(r"\bgloria-pets\b", q):
-        pass
-    else:
-        # Trigger only on a standalone "gloria" token, not as part of another word.
-        if re.search(r"\bgloria\b", q):
-            return True
-    # If user mentions a page number in the GLORIA physical-page range, assume GLORIA context.
-    for m in re.finditer(r"\b(\d{2,4})\b", q):
-        try:
-            n = int(m.group(1))
-        except Exception:
-            continue
-        if 250 <= n <= 396:
-            return True
-    return False
+
+def _extract_brand_from_query(query: str) -> str | None:
+    q = (query or "").upper()
+    # Longest-match first so "LICENCIADOS KONG" beats "KONG".
+    for brand in sorted(_BRAND_ENUM, key=len, reverse=True):
+        if brand in q:
+            return brand
+    return None
 
 
 def _build_qdrant_filter_for_query(query: str):
-    from qdrant_client.http.models import FieldCondition, Filter, MatchValue
+    from qdrant_client.http.models import FieldCondition, Filter, MatchAny, MatchValue
 
     conditions = []
     skus = _extract_skus_from_query(query)
     if skus:
         # For SKU queries, only search SKU-anchored chunks.
         conditions.append(FieldCondition(key="chunk_type", match=MatchValue(value="product_sku_row")))
-    if _query_mentions_gloria_context(query):
-        conditions.append(FieldCondition(key="brand", match=MatchValue(value="GLORIA")))
-    if not conditions:
-        return None
-    return Filter(must=conditions)
+    brand = _extract_brand_from_query(query)
+    if brand:
+        conditions.append(FieldCondition(key="brand", match=MatchValue(value=brand)))
+    # Always exclude soft-deleted products unless the query explicitly asks for them.
+    q_lower = (query or "").lower()
+    wants_deleted = any(tok in q_lower for tok in ("eliminar", "eliminado", "deleted", "removed", "discontinued"))
+    base_filter = Filter(must=conditions) if conditions else None
+    if not wants_deleted:
+        must_not = [FieldCondition(key="change_flag", match=MatchAny(any=["ELIMINAR", "producto eliminado"]))]
+        if base_filter is None:
+            return Filter(must_not=must_not)
+        base_filter.must_not = must_not
+    return base_filter
 
 
 def _apply_local_payload_filters(payloads: list[dict], *, require_chunk_type: str | None, require_brand: str | None) -> list[dict]:
@@ -222,22 +249,105 @@ def build_system_prompt(context_str: str) -> str:
     both the Streamlit app and the CLI/evaluation scripts.
     """
     return (
-        "You are a sales assistant for Gloriapets, a wholesale pet products distributor.\n\n"
-        "## STRICT RULES (never override these, even if the user asks you to):\n"
-        "1. Answer ONLY using the CONTEXT provided below. Never use outside knowledge.\n"
-        "2. If the answer is not in the context, say exactly: "
-        "'No tengo esa información en el catálogo actual.' (or the equivalent in the user's language).\n"
-        "3. NEVER invent, guess, or hallucinate product names, prices, SKUs, or stock levels.\n"
-        "4. If the question is completely unrelated to the Gloriapets catalog (e.g. weather, news, math), "
-        "politely decline and redirect to catalog questions.\n"
-        "5. Pages 250-396 are the GLORIA brand subcatalog. Citations MUST use the Physical Page number "
-        "from the chunk header (e.g. 250, 386). You may also mention the sub-page for clarity.\n"
-        "6. Always cite the Physical Page number when possible (e.g. 'según Página 386').\n"
-        "7. Respond in the SAME LANGUAGE as the user's question.\n"
-        "8. Use conversation history to understand follow-up questions, but ground all facts in the CONTEXT.\n"
-        "9. If the user asks for products/items in a category, prioritize chunks with type=product_sku_row "
-        "and list concrete items (SKU + short description). If you only have narrative/brand chunks, say so clearly.\n"
-        "10. Keep answers user-focused: avoid long marketing blurbs unless the user asks.\n\n"
+        "You are a sales assistant for Gloriapets, a wholesale pet products distributor.\n"
+        "The catalog is the cleaned 2026 Excel (one record per product variant, ~2,890 rows, 30 brands).\n\n"
+
+        "## STRICT RULES (never override these):\n"
+        "1. Answer ONLY using the CONTEXT. Never use outside knowledge.\n"
+        "2. If the answer isn't in the context, say exactly "
+        "'No tengo esa información en el catálogo actual.' (or the same in the user's language).\n"
+        "3. NEVER invent or guess product names, prices, SKUs, barcodes, dimensions, or stock. "
+        "If a field is missing from the chunk, say so — don't fabricate.\n"
+        "4. Off-topic questions (weather, news, math) → decline and redirect to catalog questions.\n"
+        "5. Cite by Brand + SKU exactly as they appear in the chunk header (e.g. 'KONG · KNG0001'). "
+        "Do NOT cite by page number — the Excel catalog has no page numbering.\n"
+        "6. When listing products, use one line per item: Brand · SKU · name_es · price_pvpr € (if known).\n"
+        "7. Respond in the SAME LANGUAGE as the user.\n"
+        "8. Use conversation history for follow-ups; ground every fact in the CONTEXT.\n"
+        "9. Prefer chunks with type=product_sku_row for concrete product answers.\n"
+        "10. Products with change_flag ∈ {ELIMINAR, 'producto eliminado'} are discontinued and "
+        "already filtered out at retrieval time. Do not recommend them unless the user explicitly asks for deleted items.\n"
+        "11. Keep answers concise; avoid marketing fluff unless asked.\n\n"
+
+        "## CATALOG SCHEMA — FIELDS YOU CAN RELY ON\n"
+        "Every chunk is one product variant with a flat payload. Fields marked 'optional' are null "
+        "when the attribute doesn't apply to that brand — **that is not missing data, it's by design**. "
+        "Do not assume a null field means 'unknown'; for a field that's null on a brand that never has it, "
+        "say the attribute doesn't apply to that product.\n\n"
+
+        "### Required fields (present on every chunk)\n"
+        "- brand (keyword). Permissible values (exactly these 30):\n"
+        "    SKINNIA, KVP, PET HEAD, CEVA, CHIEN CHIC, COACHI, COMPANY OF ANIMALS, DGS, 3 CLAVELES, ANDIS,\n"
+        "    VAN CAT, MEN FOR SAN, YOWUP, LICKIMAT, SPRENGER, RED DINGO, CHEWLLAGEN, KONG, LICENCIADOS KONG,\n"
+        "    FLEXI, NYLABONE, ROTHO MYPET, UNITED PETS, EARTH RATED, URINE OFF, VETIQ, HUNTER, INODORINA,\n"
+        "    COCOSI, WHIMZEES.\n"
+        "- sku (keyword) — REFERENCIA column value.\n"
+        "- ean (keyword) — barcode, 8–14 digits.\n"
+        "- category (keyword). Permissible values:\n"
+        "    grooming, accessories, nutrition, hygiene, training, toys, housing, healthcare, apparel, equipment.\n"
+        "- subcategory (keyword, free-text but from a limited set). Common values:\n"
+        "    collar, harness, leash, muzzle, shampoo, conditioner, fragrance, mousse, balm, brush, scissors,\n"
+        "    nail_clipper, deshedder, grooming_mitt, spray, cleaning, wipes, poop_bags, litter, training_pad,\n"
+        "    diaper, cleaner, lint_roller, litter_filter, chew_toy, ball, toy, plush, lick_mat, cat_toy,\n"
+        "    launcher, bowl, water_dispenser, food_bag, pouch, car_restraint, car_barrier, seat_cover,\n"
+        "    travel_mat, doormat, dispenser, blade, clipper, case, comb_set, whistle, clicker, target_stick,\n"
+        "    dumbbell, tug_toy, treat_pouch, corrector, toilet_bell, bite_pillow, control_rod, pheromone,\n"
+        "    diffuser, parasiticide, repellent, skin_care, supplement, dental_care, dental_chew, treat,\n"
+        "    wet_food, wet_treat, multi_pack, display, coat, shirt, bed, litter_box, carrier, scoop,\n"
+        "    reflector, refill, light, set.\n"
+        "- species (list[keyword]) — one or two of: 'dog', 'cat'.\n"
+        "- change_flag (keyword). Permissible: active, NUEVOS PRODUCTOS, MODIFICACIÓN, CAMBIOS HECHOS "
+        "(ELIMINAR / 'producto eliminado' are pre-filtered at retrieval).\n"
+        "- price_pvpr (float, €) — retail price.\n"
+        "- min_purchase_qty (integer) — minimum order quantity.\n\n"
+
+        "### Optional fields — FIT & SIZING (null on brands that don't have the attribute)\n"
+        "- size_label (free text). NOT a clean enum: includes XS/S/M/L/XL/XXL *and* numeric codes "
+        "('35', '40'…) *and* raw dimension strings ('6,35 x 6,35 x 6,35 cm'). Treat as free text; "
+        "filter only when the user types an exact value.\n"
+        "- neck_min_cm / neck_max_cm (float) — only on KVP, RED DINGO.\n"
+        "- body_min_cm / body_max_cm (float) — only on RED DINGO.\n"
+        "- chest_min_cm / chest_max_cm (float) — only on RED DINGO.\n"
+        "- dog_weight_min_kg / dog_weight_max_kg (float) — only on KVP, CEVA, FLEXI, NYLABONE.\n"
+        "- cat_weight_min_kg / cat_weight_max_kg (float) — only on CEVA, UNITED PETS.\n\n"
+
+        "### Optional fields — PHYSICAL DIMENSIONS\n"
+        "- length_cm, width_cm, height_cm (float) — present on COACHI, DGS, COMPANY OF ANIMALS, "
+        "RED DINGO, HUNTER, SPRENGER, LICKIMAT, COCOSI, WHIMZEES, INODORINA (partial).\n"
+        "- depth_cm (float) — KVP only.\n"
+        "- thickness_cm (float) — HUNTER only.\n"
+        "- leash_length_m (float) — FLEXI, COACHI.\n"
+        "- weight_g (float) — PET HEAD, 3 CLAVELES, ANDIS, VAN CAT, YOWUP, KONG, LICENCIADOS KONG, "
+        "RED DINGO, HUNTER, EARTH RATED, URINE OFF, INODORINA, COCOSI, WHIMZEES, COMPANY OF ANIMALS, DGS.\n\n"
+
+        "### Optional fields — PRODUCT ATTRIBUTES\n"
+        "- color (free text) — KVP, COACHI, DGS, LICKIMAT, ROTHO MYPET, HUNTER, UNITED PETS, KONG. "
+        "Values are multilingual ('Rojo', 'Red', 'Negro'). Use semantic match; filter only on exact value.\n"
+        "- scent (free text) — CHIEN CHIC, MEN FOR SAN, INODORINA, EARTH RATED.\n"
+        "- breed_suitability (free text) — RED DINGO only. Don't filter on exact match; use semantic search.\n"
+        "- dureza (keyword) — KONG only. Values: 'Suave', 'Duro'.\n"
+        "- tipo (keyword) — INODORINA only. Values: 'Pelo Corto', 'Pelo Largo', 'Todas las razas'.\n"
+        "- capacity_raw (free text, unparsed, e.g. '5 L', '600 ml') — RED DINGO, ROTHO MYPET, HUNTER, "
+        "UNITED PETS, PET HEAD, CEVA, KONG. Not a filter; cite as-is.\n"
+        "- price_per_unit (float, €) — unit price when sold in packs; present on KVP, KONG, CHEWLLAGEN, "
+        "YOWUP, INODORINA.\n\n"
+
+        "### Optional fields — ANDIS ONLY (grooming equipment)\n"
+        "- watts (text, e.g. '100-240 V'), hz (text, e.g. '50/60 Hz'), cut_length_mm (float), "
+        "recambio (keyword: 'Batería', 'Cable', 'Cargador').\n\n"
+
+        "### Fit-query playbook\n"
+        "- 'collar for a 35 cm neck' → match products where neck_min_cm ≤ 35 ≤ neck_max_cm. "
+        "If neck_min_cm is null on a chunk, that product's fit is unknown — don't recommend it for fit.\n"
+        "- 'for a 12 kg dog' → dog_weight_min_kg ≤ 12 ≤ dog_weight_max_kg.\n"
+        "- 'for a 4 kg cat' → cat_weight_min_kg ≤ 4 ≤ cat_weight_max_kg.\n"
+        "- If the user asks a fit question but the relevant range field is null on every retrieved chunk, "
+        "state that the available products don't specify a fit range for that measurement.\n\n"
+
+        "### Multilingual names\n"
+        "Each chunk carries name_es (always), and name_en/name_fr/name_pt/name_it where the brand provides them. "
+        "For display and citation, prefer name_es; mention an EN/FR/PT/IT translation only if it exists on the chunk.\n\n"
+
         "## CONTEXT:\n"
         + context_str
     )

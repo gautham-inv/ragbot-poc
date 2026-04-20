@@ -10,3 +10,4 @@ langfuse
 fastapi
 uvicorn
 python-multipart
+httpx
