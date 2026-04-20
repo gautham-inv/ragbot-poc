@@ -247,6 +247,25 @@ def _sku_counts_in_text(text: str, skus: list[str]) -> dict[str, int]:
     return out
 
 
+def _sku_product_names_from_chunks(retrieved_chunks: list[dict[str, Any]]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for c in retrieved_chunks or []:
+        meta = (c or {}).get("metadata") or {}
+        sku_raw = meta.get("sku")
+        sku = str(sku_raw).strip() if sku_raw else ""
+        if not sku:
+            continue
+
+        # Prefer a stable, human-friendly name if available.
+        name_raw = meta.get("product_name") or meta.get("product_name_es") or meta.get("name") or meta.get("title")
+        name = str(name_raw).strip() if name_raw else ""
+        if not name:
+            continue
+
+        out.setdefault(sku, name)
+    return out
+
+
 def _sanitize_sku_for_score_name(sku: str) -> str:
     import re
 
@@ -708,6 +727,7 @@ def chat(req: ChatRequest) -> ChatResponse:
         retrieved_skus = sorted(
             {str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")}
         )
+        sku_product_names = _sku_product_names_from_chunks(retrieved_chunks)
         retrieval_success = len(retrieved_chunks) > 0
 
         if not retrieval_success:
@@ -743,6 +763,7 @@ def chat(req: ChatRequest) -> ChatResponse:
                         "retrieved_count": len(retrieved_chunks),
                         "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
                         "retrieved_skus": retrieved_skus,
+                        "sku_product_names": sku_product_names,
                         "answer": (answer or "")[:20000],
                         "answer_truncated": len((answer or "")) > 20000,
                         "sku_counts_in_answer": _sku_counts_in_text(answer, retrieved_skus),
@@ -934,6 +955,7 @@ def chat_stream(req: ChatRequest):
                 fallback_reason = "no_results"
                 no_result = True
             retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
+            sku_product_names = _sku_product_names_from_chunks(retrieved_chunks)
 
             context_str = build_context_str(retrieved_chunks)
             system_prompt = build_system_prompt(context_str)
@@ -988,6 +1010,7 @@ def chat_stream(req: ChatRequest):
                                 "retrieved_count": len(retrieved_chunks),
                                 "retrieved_pages": _extract_retrieved_pages(retrieved_chunks),
                                 "retrieved_skus": retrieved_skus,
+                                "sku_product_names": sku_product_names,
                                 "fallback_triggered": bool(fallback_triggered),
                                 "fallback_reason": fallback_reason,
                                 "no_result": bool(no_result),
@@ -1001,6 +1024,7 @@ def chat_stream(req: ChatRequest):
                             "answer": full[:20000],
                             "answer_truncated": len(full) > 20000,
                             "sku_counts_in_answer": _sku_counts_in_text(full, retrieved_skus),
+                            "sku_product_names": sku_product_names,
                         }
                     )
                 except Exception:

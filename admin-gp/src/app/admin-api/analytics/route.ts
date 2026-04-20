@@ -62,8 +62,11 @@ export async function GET(request: Request) {
       // Intent & Language
       const intent = inputData.intent || "other";
       intentCounts[intent] = (intentCounts[intent] || 0) + 1;
-      const lang = inputData.user_language || "unknown";
-      languageCounts[lang] = (languageCounts[lang] || 0) + 1;
+      const langRaw = inputData.user_language;
+      const lang = typeof langRaw === "string" ? langRaw.trim() : "";
+      if (lang && lang.toLowerCase() !== "unknown") {
+        languageCounts[lang] = (languageCounts[lang] || 0) + 1;
+      }
 
       // Confidence
       const conf = inputData.intent_confidence || 0;
@@ -71,10 +74,22 @@ export async function GET(request: Request) {
 
       // SKUs
       const skuCounts = outputData.sku_counts_in_answer || {};
+      const skuProductNamesRaw = outputData.sku_product_names || {};
+      const skuProductNames: Record<string, string> = {};
+      if (skuProductNamesRaw && typeof skuProductNamesRaw === "object") {
+        for (const [k, v] of Object.entries(skuProductNamesRaw as Record<string, unknown>)) {
+          const skuKey = String(k || "").trim();
+          const name = typeof v === "string" ? v.trim() : String(v || "").trim();
+          if (skuKey && name) skuProductNames[skuKey] = name;
+        }
+      }
       if (Object.keys(skuCounts).length > 0) skuHits++; else zeroResults++;
       Object.entries(skuCounts).forEach(([sku, count]: [string, any]) => {
-        if (!topSKUsMap[sku]) topSKUsMap[sku] = { product: sku, hits: 0 };
-        topSKUsMap[sku].hits += (typeof count === 'number' ? count : 1);
+        const skuKey = String(sku || "").trim();
+        if (!skuKey) return;
+        const name = skuProductNames[skuKey] || skuProductNames[skuKey.toUpperCase()] || skuKey;
+        if (!topSKUsMap[skuKey]) topSKUsMap[skuKey] = { product: name, hits: 0 };
+        topSKUsMap[skuKey].hits += (typeof count === 'number' ? count : 1);
       });
 
       // Sequential Data Mapping
@@ -105,7 +120,10 @@ export async function GET(request: Request) {
         intent: Object.entries(intentCounts).map(([name, value]) => ({ name, value, color: name === 'product_search' ? '#3b82f6' : name === 'barcode_lookup' ? '#10b981' : '#f59e0b' })),
         languages: Object.entries(languageCounts).map(([name, value]) => ({ name, value }))
       },
-      topSKUs: Object.values(topSKUsMap).sort((a, b) => b.hits - a.hits).slice(0, 5).map(s => ({ ...s, sku: s.product, frequency: Math.round((s.hits / total) * 100) })),
+      topSKUs: Object.entries(topSKUsMap)
+        .map(([sku, v]) => ({ sku, product: v.product, hits: v.hits, frequency: Math.round((v.hits / total) * 100) }))
+        .sort((a, b) => b.hits - a.hits)
+        .slice(0, 5),
       recentQueries: traces.map((t: any) => {
         let input: any = {};
         let output: any = {};
