@@ -2,6 +2,7 @@
 
 import { signUp } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { Suspense, useMemo, useState } from "react";
 
 function SignupContent() {
@@ -44,7 +45,10 @@ function SignupContent() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 bg-[var(--background)] text-[var(--foreground)]">
       <div className="w-full max-w-md rounded-xl border p-6 shadow-sm bg-[var(--surface)] border-[var(--border)]">
-        <h1 className="text-xl font-semibold">Admin sign up</h1>
+        <div className="flex items-center gap-2">
+          <Image src="/paw.jpg" alt="Gloria Pets" width={24} height={24} priority />
+          <h1 className="text-xl font-semibold">Admin sign up</h1>
+        </div>
         <p className="mt-1 text-sm text-[var(--secondary)]">Create an admin account.</p>
 
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>

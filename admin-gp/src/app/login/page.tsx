@@ -2,6 +2,7 @@
 
 import { signIn } from "@/lib/auth-client";
 import { useRouter, useSearchParams } from "next/navigation";
+import Image from "next/image";
 import { useMemo, useState, Suspense } from "react";
 
 function LoginContent() {
@@ -42,7 +43,10 @@ function LoginContent() {
   return (
     <main className="min-h-screen flex items-center justify-center p-6 bg-[var(--background)] text-[var(--foreground)]">
       <div className="w-full max-w-md rounded-xl border p-6 shadow-sm bg-[var(--surface)] border-[var(--border)]">
-        <h1 className="text-xl font-semibold">Admin login</h1>
+        <div className="flex items-center gap-2">
+          <Image src="/paw.jpg" alt="Gloria Pets" width={24} height={24} priority />
+          <h1 className="text-xl font-semibold">Admin login</h1>
+        </div>
         <p className="mt-1 text-sm text-[var(--secondary)]">Sign in to access analytics.</p>
 
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>

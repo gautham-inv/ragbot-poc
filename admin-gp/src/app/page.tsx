@@ -19,6 +19,7 @@ import {
 import { signOut } from '@/lib/auth-client';
 import { AlertCircle, LogOut, RefreshCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function Dashboard() {
   const router = useRouter();
@@ -82,15 +83,15 @@ export default function Dashboard() {
       <header className="flex justify-between items-center mb-8" style={{ marginBottom: '2rem' }}>
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span style={{ fontSize: '1.5rem' }}>🐾</span>
-            <h1 className="heading-1">GloriaPets — Catalog Bot Analytics</h1>
+            <Image src="/paw.jpg" alt="Gloria Pets" width={26} height={26} priority />
+            <h1 className="heading-1">GloriaPets - Catalog Bot Analytics</h1>
           </div>
           <div className="flex items-center gap-4 text-sm">
             <div className={`flex items-center gap-1 ${loading ? 'text-secondary' : 'text-success'}`}>
-              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: loading ? '#64748b' : 'currentColor' }}></div>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: loading ? 'var(--secondary)' : 'currentColor' }}></div>
               <span>{loading ? 'Fetching live traces...' : 'Langfuse traces (Live)'}</span>
             </div>
-            <span className="text-secondary">•</span>
+            <span className="text-secondary">|</span>
             <span className="text-secondary">default environment</span>
           </div>
         </div>
@@ -154,7 +155,7 @@ export default function Dashboard() {
       </div>
 
       <footer className="mt-12 text-center text-xs text-secondary" style={{ marginTop: '3rem', paddingBottom: '2rem' }}>
-        Gloria Pets Analytics Dashboard • Powered by Langfuse Traces • Live Connection: {data ? 'Enabled' : 'Simulated'}
+        Gloria Pets Analytics Dashboard | Powered by Langfuse Traces | Live Connection: {data ? 'Enabled' : 'Simulated'}
       </footer>
 
       <style jsx global>{`
