@@ -42,16 +42,16 @@ function SignupContent() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-900">Admin sign up</h1>
-        <p className="mt-1 text-sm text-slate-600">Create an admin account.</p>
+    <main className="min-h-screen flex items-center justify-center p-6 bg-[var(--background)] text-[var(--foreground)]">
+      <div className="w-full max-w-md rounded-xl border p-6 shadow-sm bg-[var(--surface)] border-[var(--border)]">
+        <h1 className="text-xl font-semibold">Admin sign up</h1>
+        <p className="mt-1 text-sm text-[var(--secondary)]">Create an admin account.</p>
 
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Name</label>
+            <label className="block text-sm font-medium text-[var(--secondary)]">Name</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none bg-[var(--surface)] text-[var(--foreground)] border-[var(--border)] placeholder:text-[color:var(--secondary)] focus:border-[color:var(--secondary)]"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -59,9 +59,9 @@ function SignupContent() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Email</label>
+            <label className="block text-sm font-medium text-[var(--secondary)]">Email</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none bg-[var(--surface)] text-[var(--foreground)] border-[var(--border)] placeholder:text-[color:var(--secondary)] focus:border-[color:var(--secondary)]"
               type="email"
               autoComplete="email"
               value={email}
@@ -71,9 +71,9 @@ function SignupContent() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Password</label>
+            <label className="block text-sm font-medium text-[var(--secondary)]">Password</label>
             <input
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-400"
+              className="mt-1 w-full rounded-lg border px-3 py-2 text-sm outline-none bg-[var(--surface)] text-[var(--foreground)] border-[var(--border)] placeholder:text-[color:var(--secondary)] focus:border-[color:var(--secondary)]"
               type="password"
               autoComplete="new-password"
               value={password}
@@ -90,7 +90,7 @@ function SignupContent() {
           ) : null}
 
           <button
-            className="w-full rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className="w-full rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-60 bg-[var(--primary)] hover:opacity-90"
             type="submit"
             disabled={submitting}
           >
@@ -98,12 +98,12 @@ function SignupContent() {
           </button>
         </form>
 
-        <div className="mt-4 text-xs text-slate-500">
+        <div className="mt-4 text-xs text-[var(--secondary)]">
           You'll be redirected to <span className="font-mono">{nextPath}</span> after sign up.
         </div>
 
         <div className="mt-4 text-sm">
-          <a className="text-slate-700 underline" href={`/login?next=${encodeURIComponent(nextPath)}`}>
+          <a className="underline text-[var(--secondary)] hover:text-[var(--foreground)]" href={`/login?next=${encodeURIComponent(nextPath)}`}>
             Back to login
           </a>
         </div>
@@ -116,8 +116,8 @@ export default function AdminSignupPage() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-          <div className="text-slate-500 animate-pulse">Loading sign up...</div>
+        <div className="min-h-screen flex items-center justify-center bg-[var(--background)] text-[var(--secondary)]">
+          <div className="animate-pulse">Loading sign up...</div>
         </div>
       }
     >
@@ -125,4 +125,3 @@ export default function AdminSignupPage() {
     </Suspense>
   );
 }
-

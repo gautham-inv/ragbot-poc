@@ -29,7 +29,7 @@ export const TopSKUsTable: React.FC<{ data: SKU[] }> = ({ data }) => (
               <td style={{ padding: '0.75rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.product}</td>
               <td style={{ padding: '0.75rem' }}>{item.hits}</td>
               <td style={{ padding: '0.75rem' }}>
-                <div style={{ width: '100%', height: '4px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{ width: '100%', height: '4px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
                   <div style={{ width: `${item.frequency}%`, height: '100%', background: 'var(--primary)' }}></div>
                 </div>
               </td>
@@ -65,7 +65,7 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
                 <div className="flex items-center gap-2 text-xs text-secondary font-bold uppercase">
                   <User size={14} /> User Query
                 </div>
-                <div className="p-4 bg-white border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--primary)', fontSize: '0.925rem', lineHeight: 1.5 }}>
+                <div className="p-4 border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--primary)', fontSize: '0.925rem', lineHeight: 1.5, background: 'var(--surface)', borderColor: 'var(--border)' }}>
                   {query.query}
                 </div>
               </div>
@@ -74,7 +74,7 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
                 <div className="flex items-center gap-2 text-xs text-secondary font-bold uppercase">
                   <MessageSquare size={14} /> Bot Response
                 </div>
-                <div className="p-4 bg-white border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--success)', fontSize: '0.925rem', lineHeight: 1.6 }}>
+                <div className="p-4 border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--success)', fontSize: '0.925rem', lineHeight: 1.6, background: 'var(--surface)', borderColor: 'var(--border)' }}>
                   {query.answer || "No response recorded for this trace."}
                 </div>
               </div>
@@ -82,23 +82,23 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
 
             {/* Metadata Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
-              <div className="p-3 bg-white border" style={{ borderRadius: '8px' }}>
+              <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1 flex items-center gap-1">
                   <Clock size={12} /> Latency
                 </div>
                 <div className="font-bold">{query.latency.toFixed(2)}s</div>
               </div>
-              <div className="p-3 bg-white border" style={{ borderRadius: '8px' }}>
+              <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1 flex items-center gap-1">
                   <Database size={12} /> Confidence
                 </div>
                 <div className="font-bold">{(query.intent_confidence || 0).toFixed(4)}</div>
               </div>
-              <div className="p-3 bg-white border" style={{ borderRadius: '8px' }}>
+              <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1">Timestamp (UTC)</div>
                 <div className="font-bold">{new Date(query.timestamp).toLocaleString()}</div>
               </div>
-              <div className="p-3 bg-white border" style={{ borderRadius: '8px' }}>
+              <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1">Trace ID</div>
                 <div className="font-bold text-xs" style={{ fontFamily: 'monospace' }}>{query.id.substring(0, 8)}...</div>
               </div>
@@ -120,14 +120,14 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
               navigator.clipboard.writeText(JSON.stringify({ input: query.rawInput, output: query.rawOutput }, null, 2));
               alert("Metadata copied to clipboard!");
             }}
-            className="px-4 py-2 bg-secondary text-white border-none rounded-md cursor-pointer font-medium hover:opacity-90 mr-2"
+            className="px-4 py-2 rounded-md cursor-pointer font-medium hover:opacity-90 mr-2 bg-[var(--surface-hover)] text-[var(--foreground)] border border-[var(--border)]"
             style={{ fontSize: '0.875rem' }}
           >
             Copy JSON
           </button>
           <button 
             onClick={onClose}
-            className="px-4 py-2 bg-primary text-white border-none rounded-md cursor-pointer font-medium hover:opacity-90"
+            className="px-4 py-2 rounded-md cursor-pointer font-medium hover:opacity-90 bg-[var(--primary)] text-white border border-transparent"
             style={{ fontSize: '0.875rem' }}
           >
             Close

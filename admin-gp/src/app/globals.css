@@ -225,12 +225,14 @@ a {
 }
 
 .modal-content {
-  background: white;
+  background: var(--surface);
+  color: var(--foreground);
   width: 100%;
   max-width: 800px;
   max-height: 90vh;
   border-radius: 16px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -248,7 +250,7 @@ a {
 .modal-body {
   padding: 1.5rem;
   overflow-y: auto;
-  background: #f8fafc;
+  background: var(--background);
 }
 
 .modal-footer {
