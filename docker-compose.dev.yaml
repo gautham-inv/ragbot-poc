@@ -52,3 +52,20 @@ services:
       - auth-server
       - ragbot-api
     restart: unless-stopped
+
+  admin-gp:
+    build:
+      context: ./admin-gp
+      dockerfile: Dockerfile
+    container_name: ragbot_admin_gp_dev
+    ports:
+      - "3001:3000"
+    env_file:
+      - .env
+    environment:
+      - NEXT_PUBLIC_AUTH_URL=http://localhost:4000
+      - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - auth-server
+      - ragbot-api
+    restart: unless-stopped

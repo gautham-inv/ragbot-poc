@@ -28,7 +28,7 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`/api/analytics?range=${range}`);
+      const response = await fetch(`/admin-api/analytics?range=${range}`);
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.error || "Failed to fetch analytics");

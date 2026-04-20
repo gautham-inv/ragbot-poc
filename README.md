@@ -50,7 +50,8 @@ python indexing\run_build.py
 
 This repo now includes:
 - `backend/app.py` (FastAPI) on port `8000`
-- `web/` (Next.js + Tailwind) on port `3000`
+- `web/` (Next.js customer UI) on port `3000`
+- `admin-gp/` (Next.js admin dashboard) on port `3001` (maps to container port `3000`)
 
 ### Run API
 ```bash
@@ -66,6 +67,13 @@ cd web
 npm install
 set NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 npm run dev
+```
+
+### Run Admin UI
+```bash
+cd admin-gp
+npm install
+npm run dev -- -p 3001
 ```
 
 ## Production (systemd)

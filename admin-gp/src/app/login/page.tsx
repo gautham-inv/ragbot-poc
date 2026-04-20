@@ -79,12 +79,12 @@ function LoginContent() {
             type="submit"
             disabled={submitting}
           >
-            {submitting ? "Signing inâ€¦" : "Sign in"}
+            {submitting ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
         <div className="mt-4 text-xs text-slate-500">
-          Youâ€™ll be redirected to <span className="font-mono">{nextPath}</span> after login.
+          You'll be redirected to <span className="font-mono">{nextPath}</span> after login.
         </div>
       </div>
     </main>

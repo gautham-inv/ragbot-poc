@@ -55,3 +55,21 @@ services:
       - auth-server
       - ragbot-api
     restart: always
+
+  admin-gp:
+    build:
+      context: ./admin-gp
+      dockerfile: Dockerfile
+    container_name: ragbot_admin_gp
+    ports:
+      # Expose to localhost so Caddy can proxy to it
+      - "127.0.0.1:3001:3000"
+    env_file:
+      - .env
+    environment:
+      - NEXT_PUBLIC_AUTH_URL=https://admin-gp.innovin.win
+      - NEXT_PUBLIC_API_BASE_URL=https://admin-gp.innovin.win
+    depends_on:
+      - auth-server
+      - ragbot-api
+    restart: always
