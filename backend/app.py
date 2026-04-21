@@ -1,11 +1,19 @@
 ﻿from __future__ import annotations
 
+import logging
 import os
 import sys
 import time
+import uuid
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger("ragbot")
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -682,6 +690,10 @@ def chat(req: ChatRequest) -> ChatResponse:
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
+    rid = uuid.uuid4().hex[:8]
+    t_req = time.perf_counter()
+    logger.info("[%s] /api/chat query=%r history_len=%d", rid, query, len(req.history or []))
+
     langfuse = _get_langfuse_client()
     span = None
     if langfuse is not None:
@@ -714,6 +726,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             intent, language, intent_confidence = _route_intent_and_language(query)
         except Exception:
             intent, language, intent_confidence = "unknown", "unknown", 0.0
+        logger.info("[%s] intent=%s lang=%s conf=%.2f", rid, intent, language, intent_confidence)
 
         bm25_bundle = _get_bm25_bundle()
         bm25 = bm25_bundle["bm25"]
@@ -724,7 +737,9 @@ def chat(req: ChatRequest) -> ChatResponse:
         model = _get_embedder()
 
         search_query = _rewrite_query_with_history(query, history)
+        logger.info("[%s] rewritten=%r", rid, search_query)
         enriched_query = enrich_query_with_product_names(search_query, product_dictionary)
+        logger.info("[%s] enriched=%r", rid, enriched_query)
 
         if span is not None:
             try:
@@ -808,11 +823,16 @@ def chat(req: ChatRequest) -> ChatResponse:
         )
         sku_product_names = _sku_product_names_from_chunks(retrieved_chunks)
         retrieval_success = len(retrieved_chunks) > 0
+        logger.info(
+            "[%s] retrieval top_k=%d top_n=%d latency_ms=%.1f hits=%d skus=%s",
+            rid, top_k, top_n, retrieval_latency_ms, len(retrieved_chunks), retrieved_skus,
+        )
 
         if not retrieval_success:
             fallback_triggered = True
             fallback_reason = "no_results"
             no_result = True
+            logger.info("[%s] fallback reason=%s", rid, fallback_reason)
 
         context_str = build_context_str(retrieved_chunks)
         system_prompt = build_system_prompt(context_str)
@@ -829,7 +849,14 @@ def chat(req: ChatRequest) -> ChatResponse:
         answer_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         answer_messages.extend(cleaned_history)
         answer_messages.append({"role": "user", "content": query})
+        logger.info("[%s] llm call model=%s messages=%d", rid, llm_model, len(answer_messages))
+        t_llm = time.perf_counter()
         answer = _openrouter_chat(answer_messages, model=llm_model)
+        logger.info(
+            "[%s] llm done latency_ms=%.1f answer_len=%d total_ms=%.1f",
+            rid, (time.perf_counter() - t_llm) * 1000.0, len(answer or ""),
+            (time.perf_counter() - t_req) * 1000.0,
+        )
 
         if span is not None:
             try:
@@ -865,11 +892,12 @@ def chat(req: ChatRequest) -> ChatResponse:
             _langfuse_score_numeric(span, "fallback_triggered", 1.0 if fallback_triggered else 0.0)
             _langfuse_score_numeric(span, "no_result", 1.0 if no_result else 0.0)
             basics_scored = True
-    except Exception:
+    except Exception as e:
         fallback_triggered = True
         fallback_reason = "system_error"
         no_result = True
         retrieval_success = False
+        logger.exception("[%s] /api/chat failed: %s", rid, e)
         raise
     finally:
         if span is not None:
@@ -910,6 +938,10 @@ def chat_stream(req: ChatRequest):
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
+    rid = uuid.uuid4().hex[:8]
+    t_req = time.perf_counter()
+    logger.info("[%s] /api/chat_stream query=%r history_len=%d", rid, query, len(req.history or []))
+
     def _gen():
         langfuse = _get_langfuse_client()
         span = None
@@ -942,12 +974,15 @@ def chat_stream(req: ChatRequest):
                 intent, language, intent_confidence = _route_intent_and_language(query)
             except Exception:
                 intent, language, intent_confidence = "unknown", "unknown", 0.0
+            logger.info("[%s] intent=%s lang=%s conf=%.2f", rid, intent, language, intent_confidence)
 
             yield _sse({"type": "status", "message": "Rewriting your queryâ€¦"})
             search_query = _rewrite_query_with_history(query, history)
+            logger.info("[%s] rewritten=%r", rid, search_query)
             yield _sse({"type": "rewrite", "rewritten_query": search_query})
 
             enriched_query = enrich_query_with_product_names(search_query, product_dictionary)
+            logger.info("[%s] enriched=%r", rid, enriched_query)
             yield _sse({"type": "enrich", "enriched_query": enriched_query})
 
             if span is not None:
@@ -1038,6 +1073,12 @@ def chat_stream(req: ChatRequest):
                 no_result = True
             retrieved_skus = sorted({str((c.get("metadata") or {}).get("sku")) for c in retrieved_chunks if (c.get("metadata") or {}).get("sku")})
             sku_product_names = _sku_product_names_from_chunks(retrieved_chunks)
+            logger.info(
+                "[%s] retrieval top_k=%d top_n=%d latency_ms=%.1f hits=%d skus=%s",
+                rid, top_k, top_n, retrieval_latency_ms, len(retrieved_chunks), retrieved_skus,
+            )
+            if not retrieval_success:
+                logger.info("[%s] fallback reason=%s", rid, fallback_reason)
 
             context_str = build_context_str(retrieved_chunks)
             system_prompt = build_system_prompt(context_str)
@@ -1068,6 +1109,8 @@ def chat_stream(req: ChatRequest):
                 only = [p.strip() for p in provider_only.split(",") if p.strip()]
                 if only:
                     provider = {"only": only}
+            logger.info("[%s] llm stream model=%s messages=%d", rid, llm_model, len(messages))
+            t_llm = time.perf_counter()
             with OpenRouter(
                 http_referer="ragbot-poc",
                 x_open_router_title="ragbot-poc",
@@ -1089,6 +1132,11 @@ def chat_stream(req: ChatRequest):
                             continue
                         full += delta
                         yield _sse({"type": "token", "delta": delta})
+            logger.info(
+                "[%s] llm stream done latency_ms=%.1f answer_len=%d total_ms=%.1f",
+                rid, (time.perf_counter() - t_llm) * 1000.0, len(full),
+                (time.perf_counter() - t_req) * 1000.0,
+            )
 
             if span is not None:
                 try:
@@ -1172,6 +1220,7 @@ def chat_stream(req: ChatRequest):
             fallback_reason = "system_error"
             no_result = True
             retrieval_success = False
+            logger.exception("[%s] /api/chat_stream failed: %s", rid, e)
             if span is not None:
                 try:
                     _langfuse_score_numeric(span, "fallback_triggered", 1.0)
