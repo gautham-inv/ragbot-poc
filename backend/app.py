@@ -61,6 +61,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     sources: list[dict[str, Any]]
+    sources_total: int | None = None
     rewritten_query: str | None = None
     enriched_query: str | None = None
 
@@ -1333,6 +1334,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
     tool_trace: list[dict[str, Any]] = []
     retrieved_products: list[dict[str, Any]] = []
     answer = ""
+    sources_total: int | None = None
     error: str | None = None
 
     try:
@@ -1374,6 +1376,9 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         answer = result["answer"]
         tool_trace = result["tool_trace"]
         retrieved_products = result["retrieved_products"]
+        sources_total = result.get("sources_total")
+        if not isinstance(sources_total, int) or sources_total < 0:
+            sources_total = None
 
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
@@ -1445,7 +1450,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         except Exception:
             pass
 
-    return ChatResponse(answer=answer, sources=sources)
+    return ChatResponse(answer=answer, sources=sources, sources_total=sources_total)
 
 
 @app.post("/api/chat_tools_stream")
@@ -1508,6 +1513,9 @@ def chat_tools_stream(req: ChatRequest):
                     answer = str(evt.get("answer") or "").strip() or "No response."
                     tool_trace = list(evt.get("tool_trace") or [])
                     retrieved_products = list(evt.get("retrieved_products") or [])
+                    sources_total = evt.get("sources_total")
+                    if not isinstance(sources_total, int) or sources_total < 0:
+                        sources_total = None
 
                     # Shape sources to match ChatResponse / frontend expectations.
                     sources: list[dict[str, Any]] = []
@@ -1527,7 +1535,7 @@ def chat_tools_stream(req: ChatRequest):
                             }
                         )
 
-                    yield _sse({"type": "done", "answer": answer, "sources": sources})
+                    yield _sse({"type": "done", "answer": answer, "sources": sources, "sources_total": sources_total})
                     return
 
             yield _sse({"type": "error", "message": "Tool loop ended unexpectedly."})

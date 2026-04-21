@@ -16,6 +16,7 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   sources?: SourceChunk[];
+  sources_total?: number;
   rewritten_query?: string;
   enriched_query?: string;
 };
@@ -91,6 +92,7 @@ type StreamEvent =
       type: "done";
       answer: string;
       sources: SourceChunk[];
+      sources_total?: number;
       rewritten_query?: string;
       enriched_query?: string;
     }
@@ -236,6 +238,7 @@ export default function Home() {
                 ...m,
                 content: evt.answer ?? m.content,
                 sources: evt.sources ?? m.sources,
+                sources_total: typeof evt.sources_total === "number" ? evt.sources_total : m.sources_total,
                 rewritten_query: evt.rewritten_query ?? m.rewritten_query,
                 enriched_query: evt.enriched_query ?? m.enriched_query
               }));
@@ -285,6 +288,7 @@ export default function Home() {
           ...m,
           content: answer,
           sources,
+          sources_total: typeof data?.sources_total === "number" ? data.sources_total : undefined,
           rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
           enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
         }));
@@ -317,6 +321,7 @@ export default function Home() {
         ...m,
         content: answer,
         sources,
+        sources_total: typeof data?.sources_total === "number" ? data.sources_total : undefined,
         rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
         enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
       }));
@@ -528,7 +533,14 @@ export default function Home() {
                       {m.role === "assistant" && m.sources && m.sources.length > 0 && (
                         <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                           <summary className="cursor-pointer text-xs font-semibold text-slate-600">
-                            Source documents ({m.sources.length})
+                            {(() => {
+                              const shown = Math.min(8, m.sources?.length ?? 0);
+                              const total = typeof m.sources_total === "number" && m.sources_total > 0
+                                ? m.sources_total
+                                : (m.sources?.length ?? 0);
+                              if (total > shown) return `Source documents (showing ${shown} of ${total})`;
+                              return `Source documents (${m.sources?.length ?? 0})`;
+                            })()}
                           </summary>
                           <div className="mt-2 space-y-2">
                             <div className="space-y-2 pt-1">
@@ -564,9 +576,21 @@ export default function Home() {
                                   </div>
                                 );
                               })}
-                              {m.sources.length > 8 && (
-                                <div className="text-[11px] text-slate-500">Showing first 8 sources.</div>
-                              )}
+                              {(() => {
+                                const shown = Math.min(8, m.sources?.length ?? 0);
+                                const total = typeof m.sources_total === "number" && m.sources_total > 0
+                                  ? m.sources_total
+                                  : (m.sources?.length ?? 0);
+                                if (total > shown) {
+                                  return (
+                                    <div className="text-[11px] text-slate-500">Showing first {shown} of {total} sources.</div>
+                                  );
+                                }
+                                if ((m.sources?.length ?? 0) > 8) {
+                                  return <div className="text-[11px] text-slate-500">Showing first {shown} sources.</div>;
+                                }
+                                return null;
+                              })()}
                             </div>
                           </div>
                         </details>

@@ -50,7 +50,9 @@ export async function GET(request: Request) {
       try { outputData = typeof trace.output === 'string' ? JSON.parse(trace.output) : trace.output || {}; } catch(e) {}
 
       // Latency
-      const latencyInSec = trace.duration || 0;
+      const latencyInSec =
+        (typeof trace.latency === "number" ? trace.latency : null) ??
+        (typeof trace.duration === "number" ? trace.duration : 0);
       totalLatency += latencyInSec;
       if (latencyInSec < 2) latencyBuckets["<2s"]++;
       else if (latencyInSec < 5) latencyBuckets["2-5s"]++;
@@ -129,15 +131,18 @@ export async function GET(request: Request) {
         let output: any = {};
         try { input = typeof t.input === 'string' ? JSON.parse(t.input) : t.input || {}; } catch(e) {}
         try { output = typeof t.output === 'string' ? JSON.parse(t.output) : t.output || {}; } catch(e) {}
+        const latencyInSec =
+          (typeof t.latency === "number" ? t.latency : null) ??
+          (typeof t.duration === "number" ? t.duration : 0);
         return {
           id: t.id,
           timestamp: t.timestamp,
           query: input.query || "Unknown Query",
           intent: input.intent || "other",
           intent_confidence: input.intent_confidence || 0,
-          latency: t.duration || 0,
+          latency: latencyInSec,
           answer: output.answer || "No response recorded",
-          status: (t.duration || 0) > 15 ? 'critical' : 'success',
+          status: latencyInSec > 15 ? 'critical' : 'success',
           rawInput: input,
           rawOutput: output
         };

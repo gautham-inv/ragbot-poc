@@ -512,6 +512,16 @@ def filter_scroll(
     flt = _build_filter(brand=brand, category=category, subcategory=subcategory,
                         species=species, price_min=price_min, price_max=price_max,
                         size_label=size_label)
+    total_count: int | None = None
+    try:
+        if flt is None:
+            cr = qdrant.count(collection_name=collection, exact=True)
+        else:
+            cr = qdrant.count(collection_name=collection, count_filter=flt, exact=True)
+        total_count = int(getattr(cr, "count", cr.get("count") if isinstance(cr, dict) else 0))
+    except Exception:
+        total_count = None
+
     points, _ = qdrant.scroll(
         collection_name=collection,
         scroll_filter=flt,
@@ -526,6 +536,7 @@ def filter_scroll(
             "species": species, "price_min": price_min, "price_max": price_max,
             "size_label": size_label,
         }.items() if v is not None},
+        "total_count": total_count,
         "count": len(products),
         "products": products,
     }
@@ -953,12 +964,17 @@ def run_tool_loop(
                                    embedder=embedder, bm25=bm25,
                                    bm25_chunks=bm25_chunks)
 
+            tc_total = result.get("total_count")
+            if isinstance(tc_total, int) and tc_total >= 0:
+                sources_total = tc_total if sources_total is None else max(sources_total, tc_total)
+
             tool_trace.append({
                 "round": round_idx,
                 "name": name,
                 "arguments": args,
                 "result_summary": {
                     "count": result.get("count"),
+                    "total_count": result.get("total_count"),
                     "distinct_values": result.get("distinct_values"),
                     "tool": result.get("tool"),
                     "error": result.get("error"),
@@ -983,6 +999,7 @@ def run_tool_loop(
         "answer": answer,
         "tool_trace": tool_trace,
         "retrieved_products": retrieved_products,
+        "sources_total": sources_total,
         "model": model,
         "rounds": len(tool_trace),
     }
@@ -1020,6 +1037,8 @@ def run_tool_loop_stream(
     tool_trace: list[dict[str, Any]] = []
     retrieved_products: list[dict[str, Any]] = []
     answer = ""
+    sources_total: int | None = None
+    sources_total: int | None = None
 
     try:
         for round_idx in range(max_rounds):
@@ -1062,6 +1081,10 @@ def run_tool_loop_stream(
                     bm25_chunks=bm25_chunks,
                 )
 
+                tc_total = result.get("total_count")
+                if isinstance(tc_total, int) and tc_total >= 0:
+                    sources_total = tc_total if sources_total is None else max(sources_total, tc_total)
+
                 tool_trace.append(
                     {
                         "round": round_idx,
@@ -1069,6 +1092,7 @@ def run_tool_loop_stream(
                         "arguments": args,
                         "result_summary": {
                             "count": result.get("count"),
+                            "total_count": result.get("total_count"),
                             "distinct_values": result.get("distinct_values"),
                             "tool": result.get("tool"),
                             "error": result.get("error"),
@@ -1083,7 +1107,10 @@ def run_tool_loop_stream(
 
                 count = result.get("count")
                 if isinstance(count, int):
-                    yield {"type": "status", "message": f"`{name}` returned {count} results."}
+                    if isinstance(tc_total, int) and tc_total >= 0 and tc_total != count:
+                        yield {"type": "status", "message": f"`{name}` returned {count} items (showing {count} of {tc_total})."}
+                    else:
+                        yield {"type": "status", "message": f"`{name}` returned {count} results."}
                 elif products:
                     yield {"type": "status", "message": f"`{name}` returned {len(products)} items."}
                 elif result.get("error"):
@@ -1106,6 +1133,7 @@ def run_tool_loop_stream(
             "answer": answer,
             "tool_trace": tool_trace,
             "retrieved_products": retrieved_products,
+            "sources_total": sources_total,
             "model": model,
             "rounds": len(tool_trace),
         }
