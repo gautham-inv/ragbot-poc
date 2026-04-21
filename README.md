@@ -19,6 +19,9 @@ pip install -r requirements.txt
 
 ```powershell
 OPENROUTER_API_KEY=your-openrouter-api-key
+OPENROUTER_MODEL=openai/gpt-4o-mini
+# Optional (recommended for BYOK): force routing to OpenAI
+OPENROUTER_PROVIDER_ONLY=openai
 EMBEDDING_MODEL=intfloat/multilingual-e5-small
 QDRANT_URL=https://your-cluster-url
 QDRANT_API_KEY=your-qdrant-api-key

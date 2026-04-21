@@ -81,20 +81,30 @@ def _call_openrouter(system_prompt: str, query: str) -> str:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
 
+    provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
+    provider = None
+    if provider_only:
+        only = [p.strip() for p in provider_only.split(",") if p.strip()]
+        if only:
+            provider = {"only": only}
+
     with OpenRouter(
         http_referer="ragbot-poc",
         x_open_router_title="ragbot-poc",
         api_key=api_key,
     ) as open_router:
-        res = open_router.chat.send(
-            model=os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus"),
-            messages=[
+        send_kwargs: dict[str, Any] = {
+            "model": os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus"),
+            "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": query},
             ],
-            stream=False,
-            temperature=0.0,
-        )
+            "stream": False,
+            "temperature": 0.0,
+        }
+        if provider is not None:
+            send_kwargs["provider"] = provider
+        res = open_router.chat.send(**send_kwargs)
 
     if hasattr(res, "choices") and res.choices:
         return res.choices[0].message.content
@@ -106,17 +116,27 @@ def _openrouter_chat(messages: list[dict[str, str]], *, model: str) -> str:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
 
+    provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
+    provider = None
+    if provider_only:
+        only = [p.strip() for p in provider_only.split(",") if p.strip()]
+        if only:
+            provider = {"only": only}
+
     with OpenRouter(
         http_referer="ragbot-poc",
         x_open_router_title="ragbot-poc",
         api_key=api_key,
     ) as open_router:
-        res = open_router.chat.send(
-            model=model,
-            messages=messages,
-            stream=False,
-            temperature=0.0,
-        )
+        send_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "temperature": 0.0,
+        }
+        if provider is not None:
+            send_kwargs["provider"] = provider
+        res = open_router.chat.send(**send_kwargs)
 
     if hasattr(res, "choices") and res.choices:
         return res.choices[0].message.content
@@ -980,17 +1000,26 @@ def chat_stream(req: ChatRequest):
                 return
 
             full = ""
+            provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
+            provider = None
+            if provider_only:
+                only = [p.strip() for p in provider_only.split(",") if p.strip()]
+                if only:
+                    provider = {"only": only}
             with OpenRouter(
                 http_referer="ragbot-poc",
                 x_open_router_title="ragbot-poc",
                 api_key=api_key,
             ) as open_router:
-                res = open_router.chat.send(
-                    model=llm_model,
-                    messages=messages,
-                    stream=True,
-                    temperature=0.0,
-                )
+                send_kwargs: dict[str, Any] = {
+                    "model": llm_model,
+                    "messages": messages,
+                    "stream": True,
+                    "temperature": 0.0,
+                }
+                if provider is not None:
+                    send_kwargs["provider"] = provider
+                res = open_router.chat.send(**send_kwargs)
                 with res as event_stream:
                     for event in event_stream:
                         delta = _extract_openrouter_stream_delta(event)

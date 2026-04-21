@@ -16,3 +16,4 @@ tmp_doc_ann.txt
 web/.env.local
 # MacOS
 .DS_Store
+.env.example
