@@ -178,10 +178,20 @@ def _openrouter_chat(
     return str(res)
 
 
+_langfuse_init_logged = False
+
+
 def _get_langfuse_client():
+    global _langfuse_init_logged
     pub = os.getenv("LANGFUSE_PUBLIC_KEY")
     sec = os.getenv("LANGFUSE_SECRET_KEY")
     if not (pub and sec):
+        if not _langfuse_init_logged:
+            logger.warning(
+                "[langfuse] keys missing: LANGFUSE_PUBLIC_KEY=%s LANGFUSE_SECRET_KEY=%s — no traces will be sent",
+                bool(pub), bool(sec),
+            )
+            _langfuse_init_logged = True
         return None
     # Some Langfuse SDK versions read LANGFUSE_HOST; keep compatibility with LANGFUSE_BASE_URL.
     if os.getenv("LANGFUSE_BASE_URL") and not os.getenv("LANGFUSE_HOST"):
@@ -189,8 +199,24 @@ def _get_langfuse_client():
     try:
         from langfuse import get_client  # type: ignore
 
-        return get_client()
-    except Exception:
+        client = get_client()
+        if not _langfuse_init_logged:
+            host = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL") or "<default>"
+            logger.info(
+                "[langfuse] client initialized: type=%s host=%s has_start_observation=%s",
+                type(client).__name__, host, hasattr(client, "start_observation"),
+            )
+            _langfuse_init_logged = True
+        return client
+    except ImportError as e:
+        if not _langfuse_init_logged:
+            logger.error("[langfuse] SDK not installed: %s", e)
+            _langfuse_init_logged = True
+        return None
+    except Exception as e:
+        if not _langfuse_init_logged:
+            logger.error("[langfuse] get_client() failed: %s: %s", type(e).__name__, e, exc_info=True)
+            _langfuse_init_logged = True
         return None
 
 
@@ -1462,16 +1488,39 @@ def chat_tools_stream(req: ChatRequest):
       - {type: "status", message: "..."}
       - {type: "done", answer, sources}
       - {type: "error", message}
+
+    Full Langfuse tracing is wired here — matches /api/chat_tools output shape
+    so the admin dashboard sees traces from either endpoint.
     """
     query = (req.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
+
+    # --- Langfuse: create the span OUTSIDE the generator so input is logged
+    # even if the generator crashes before producing its first event. ---
+    langfuse = _get_langfuse_client()
+    span = None
+    if langfuse is not None:
+        try:
+            span = langfuse.start_observation(as_type="span", name="api_chat_tools_stream")
+            logger.info("[chat_tools_stream] span started trace_id=%s", getattr(span, "trace_id", None))
+        except Exception as e:
+            logger.error(
+                "[chat_tools_stream] start_observation failed: %s: %s",
+                type(e).__name__, e, exc_info=True,
+            )
+            span = None
+    else:
+        logger.warning("[chat_tools_stream] langfuse client is None — no trace will be sent")
 
     def _gen():
         intent = "unknown"
         language = "unknown"
         intent_confidence = 0.0
         tool_trace: list[dict[str, Any]] = []
+        answer = ""
+        sources_out: list[dict[str, Any]] = []
+        error: str | None = None
 
         try:
             yield _sse({"type": "status", "message": "Understanding your question..."})
@@ -1480,6 +1529,29 @@ def chat_tools_stream(req: ChatRequest):
                 intent, language, intent_confidence = _route_intent_and_language(query)
             except Exception:
                 pass
+
+            # Log INPUT to Langfuse as early as possible.
+            if span is not None:
+                try:
+                    span.update(
+                        input={
+                            "query": query,
+                            "intent": intent,
+                            "intent_confidence": intent_confidence,
+                            "user_language": language,
+                            "history_len": len(req.history or []),
+                            "skus_in_user_query": list(_extract_skus_from_query(query) or []),
+                        }
+                    )
+                    logger.info(
+                        "[chat_tools_stream] input logged: intent=%s lang=%s conf=%.2f",
+                        intent, language, intent_confidence,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] span.update(input) failed: %s: %s",
+                        type(e).__name__, e, exc_info=True,
+                    )
 
             yield _sse({"type": "status", "message": "Loading catalog tools..."})
 
@@ -1506,7 +1578,9 @@ def chat_tools_stream(req: ChatRequest):
                     continue
 
                 if et == "error":
-                    yield _sse({"type": "error", "message": str(evt.get("message") or "Error.")})
+                    error = str(evt.get("message") or "Error.")
+                    logger.warning("[chat_tools_stream] tool loop error: %s", error)
+                    yield _sse({"type": "error", "message": error})
                     return
 
                 if et == "done_raw":
@@ -1518,7 +1592,6 @@ def chat_tools_stream(req: ChatRequest):
                         sources_total = None
 
                     # Shape sources to match ChatResponse / frontend expectations.
-                    sources: list[dict[str, Any]] = []
                     seen_ids: set[str] = set()
                     for p in retrieved_products:
                         cid = str(p.get("id") or p.get("chunk_id") or "")
@@ -1526,7 +1599,7 @@ def chat_tools_stream(req: ChatRequest):
                             continue
                         if cid:
                             seen_ids.add(cid)
-                        sources.append(
+                        sources_out.append(
                             {
                                 "chunk_id": cid,
                                 "text": p.get("text") or "",
@@ -1535,16 +1608,203 @@ def chat_tools_stream(req: ChatRequest):
                             }
                         )
 
-                    yield _sse({"type": "done", "answer": answer, "sources": sources, "sources_total": sources_total})
+                    yield _sse({
+                        "type": "done",
+                        "answer": answer,
+                        "sources": sources_out,
+                        "sources_total": sources_total,
+                    })
                     return
 
-            yield _sse({"type": "error", "message": "Tool loop ended unexpectedly."})
+            error = "Tool loop ended unexpectedly."
+            logger.warning("[chat_tools_stream] %s", error)
+            yield _sse({"type": "error", "message": error})
         except Exception as e:
-            yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
+            error = f"{type(e).__name__}: {e}"
+            logger.error("[chat_tools_stream] unhandled: %s", error, exc_info=True)
+            yield _sse({"type": "error", "message": error})
         finally:
-            # Best-effort trace tagging via existing /api/chat_tools path only.
-            # Keeping this endpoint lightweight on purpose.
-            pass
+            # --- Log OUTPUT + tags + scores, then end + flush. ---
+            if span is not None:
+                try:
+                    span.update(
+                        output={
+                            "answer": (answer or "")[:20000],
+                            "answer_truncated": len(answer or "") > 20000,
+                            "tool_trace": tool_trace,
+                            "rounds": len(tool_trace),
+                            "retrieved_count": len(sources_out),
+                            "retrieved_brands": _extract_retrieved_brands(sources_out),
+                            "retrieved_categories": _extract_retrieved_categories(sources_out),
+                            "retrieved_subcategories": _extract_retrieved_subcategories(sources_out),
+                            "no_result": len(sources_out) == 0,
+                            "fallback_triggered": bool(error),
+                            "fallback_reason": error,
+                            "error": error,
+                        }
+                    )
+                    logger.info(
+                        "[chat_tools_stream] output logged: answer_len=%d tools=%d sources=%d error=%s",
+                        len(answer or ""), len(tool_trace), len(sources_out), bool(error),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] span.update(output) failed: %s: %s",
+                        type(e).__name__, e, exc_info=True,
+                    )
+
+                try:
+                    tags = [
+                        f"intent:{intent or 'unknown'}",
+                        f"lang:{language or 'unknown'}",
+                        "path:tools_stream",
+                        f"no_result:{'true' if len(sources_out) == 0 else 'false'}",
+                    ]
+                    for t in tool_trace:
+                        nm = (t or {}).get("name")
+                        if nm:
+                            tags.append(f"tool:{nm}")
+                    if error:
+                        tags.append("fallback_reason:stream_error")
+                    _langfuse_add_trace_tags(
+                        langfuse,
+                        trace_id=getattr(span, "trace_id", None),
+                        tags=tags,
+                    )
+                    logger.info("[chat_tools_stream] tags added: %s", tags)
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] add_trace_tags failed: %s: %s",
+                        type(e).__name__, e,
+                    )
+
+                try:
+                    _langfuse_score_numeric(span, "retrieval_count", float(len(sources_out)))
+                    _langfuse_score_numeric(span, "tool_rounds", float(len(tool_trace)))
+                    _langfuse_score_numeric(span, "no_result", 1.0 if len(sources_out) == 0 else 0.0)
+                    _langfuse_score_numeric(span, "fallback_triggered", 1.0 if error else 0.0)
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] scores failed: %s: %s",
+                        type(e).__name__, e,
+                    )
+
+                try:
+                    span.end()
+                    logger.info("[chat_tools_stream] span ended")
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] span.end failed: %s: %s",
+                        type(e).__name__, e,
+                    )
+            if langfuse:
+                try:
+                    langfuse.flush()
+                    logger.info("[chat_tools_stream] flushed to langfuse cloud")
+                except Exception as e:
+                    logger.error(
+                        "[chat_tools_stream] flush failed: %s: %s",
+                        type(e).__name__, e,
+                    )
 
     return StreamingResponse(_gen(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Langfuse diagnostic endpoint — run a synchronous end-to-end test to isolate
+# where the pipeline breaks (keys, SDK, init, observation, update, flush).
+# Curl: `curl -s http://127.0.0.1:8000/api/langfuse_diagnose | python3 -m json.tool`
+# ---------------------------------------------------------------------------
+@app.get("/api/langfuse_diagnose")
+def langfuse_diagnose() -> dict[str, Any]:
+    report: dict[str, Any] = {
+        "env": {
+            "LANGFUSE_PUBLIC_KEY_set": bool(os.getenv("LANGFUSE_PUBLIC_KEY")),
+            "LANGFUSE_SECRET_KEY_set": bool(os.getenv("LANGFUSE_SECRET_KEY")),
+            "LANGFUSE_BASE_URL": os.getenv("LANGFUSE_BASE_URL"),
+            "LANGFUSE_HOST": os.getenv("LANGFUSE_HOST"),
+        },
+        "steps": {},
+    }
+
+    # Step 1: SDK import
+    try:
+        import langfuse as _lf  # type: ignore
+        report["steps"]["sdk_import"] = {
+            "ok": True,
+            "version": getattr(_lf, "__version__", "unknown"),
+        }
+    except Exception as e:
+        report["steps"]["sdk_import"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        report["final"] = "SDK not importable"
+        return report
+
+    # Step 2: get_client
+    client = _get_langfuse_client()
+    if client is None:
+        report["steps"]["get_client"] = {
+            "ok": False,
+            "error": "Client is None (missing keys, SDK issue, or init error). Check server log.",
+        }
+        report["final"] = "Client init failed"
+        return report
+    report["steps"]["get_client"] = {
+        "ok": True,
+        "class": type(client).__name__,
+        "has_start_observation": hasattr(client, "start_observation"),
+    }
+
+    # Step 3: start_observation
+    span = None
+    try:
+        span = client.start_observation(as_type="span", name="langfuse_diagnose")
+        report["steps"]["start_observation"] = {
+            "ok": True,
+            "trace_id": getattr(span, "trace_id", None),
+        }
+    except Exception as e:
+        report["steps"]["start_observation"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+        report["final"] = "start_observation failed"
+        return report
+
+    # Step 4: update input
+    try:
+        span.update(input={"diagnose": "ping", "timestamp": time.time()})
+        report["steps"]["update_input"] = {"ok": True}
+    except Exception as e:
+        report["steps"]["update_input"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # Step 5: update output
+    try:
+        span.update(output={"diagnose": "pong", "answer": "synthetic diagnostic response"})
+        report["steps"]["update_output"] = {"ok": True}
+    except Exception as e:
+        report["steps"]["update_output"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # Step 6: trace tags
+    try:
+        _langfuse_add_trace_tags(
+            client, trace_id=getattr(span, "trace_id", None), tags=["diagnose:true"]
+        )
+        report["steps"]["add_tags"] = {"ok": True}
+    except Exception as e:
+        report["steps"]["add_tags"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # Step 7: end
+    try:
+        span.end()
+        report["steps"]["end_span"] = {"ok": True}
+    except Exception as e:
+        report["steps"]["end_span"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    # Step 8: flush
+    try:
+        client.flush()
+        report["steps"]["flush"] = {"ok": True}
+    except Exception as e:
+        report["steps"]["flush"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+    all_ok = all(isinstance(v, dict) and v.get("ok") for v in report["steps"].values())
+    report["final"] = "ALL OK — check Langfuse UI for trace 'langfuse_diagnose'" if all_ok else "Some steps failed — see per-step errors"
+    return report
 
