@@ -25,7 +25,12 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, subValue, tren
         lineHeight: '1.4',
         opacity: 0.8,
         display: 'block',
-        width: '100%'
+        width: '100%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        display: '-webkit-box',
+        WebkitLineClamp: 2,
+        WebkitBoxOrient: 'vertical'
       }}>
         {label}
       </span>
@@ -52,9 +57,15 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, subValue, tren
           <span className="text-secondary text-right" style={{ 
             fontSize: '0.65rem', 
             fontStyle: 'italic',
-            whiteSpace: 'nowrap',
             flex: 1,
-            textAlign: 'right'
+            minWidth: 0,
+            textAlign: 'right',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflowWrap: 'anywhere'
           }}>
             {subValue}
           </span>

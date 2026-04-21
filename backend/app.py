@@ -32,7 +32,7 @@ from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
-from backend.tools import build_tool_system_prompt, run_tool_loop, run_tool_loop_stream
+from backend.tools import build_tool_system_prompt, render_compare_products_markdown, run_tool_loop, run_tool_loop_stream
 
 load_project_env()
 
@@ -1335,6 +1335,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
     retrieved_products: list[dict[str, Any]] = []
     answer = ""
     sources_total: int | None = None
+    compare_result: dict[str, Any] | None = None
     error: str | None = None
 
     try:
@@ -1377,8 +1378,15 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         tool_trace = result["tool_trace"]
         retrieved_products = result["retrieved_products"]
         sources_total = result.get("sources_total")
+        cr = result.get("compare_result")
+        compare_result = cr if isinstance(cr, dict) else None
         if not isinstance(sources_total, int) or sources_total < 0:
             sources_total = None
+
+        if compare_result:
+            table_md = render_compare_products_markdown(compare_result, user_language=language)
+            if table_md:
+                answer = f"{table_md}\n\n{answer}".strip()
 
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
@@ -1516,6 +1524,14 @@ def chat_tools_stream(req: ChatRequest):
                     sources_total = evt.get("sources_total")
                     if not isinstance(sources_total, int) or sources_total < 0:
                         sources_total = None
+                    compare_result = evt.get("compare_result")
+                    if not isinstance(compare_result, dict):
+                        compare_result = None
+
+                    if compare_result:
+                        table_md = render_compare_products_markdown(compare_result, user_language=language)
+                        if table_md:
+                            answer = f"{table_md}\n\n{answer}".strip()
 
                     # Shape sources to match ChatResponse / frontend expectations.
                     sources: list[dict[str, Any]] = []

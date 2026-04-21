@@ -434,6 +434,10 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "2. Cite products as `Brand · SKU · name_es · €price`. Never cite by page number — the Excel "
         "catalog has no page numbers.\n"
         "3. One product per line when listing.\n"
+        "4. For comparisons (when using `compare_products`): present results as a Markdown table.\n"
+        "   - Columns: one per SKU (use `Brand · SKU` as the header if brand is known).\n"
+        "   - Rows: only include fields that are present for at least one SKU (price, category, size, color, scent, weight, fit ranges, etc.).\n"
+        "   - Use short values; use '—' for missing.\n"
         "4. For fit queries (neck, dog/cat weight, chest, body): use the range fields in tool output. "
         "A 35 cm neck fits iff neck_cm[0] ≤ 35 ≤ neck_cm[1]. A null range means the attribute "
         "doesn't apply to that product — say so explicitly rather than guessing.\n"
@@ -831,6 +835,160 @@ def compare_products(
     }
 
 
+def render_compare_products_markdown(compare_result: dict[str, Any], *, user_language: str | None = None) -> str:
+    """
+    Deterministically render the output of `compare_products()` as a Markdown table.
+    """
+    lang = (user_language or "").strip().lower()
+    if not lang or len(lang) > 8:
+        lang = "unknown"
+    if lang == "unknown":
+        lang = "es"
+
+    labels_es = {
+        "field": "Campo",
+        "name_es": "Nombre",
+        "ean": "EAN",
+        "category": "Categoría",
+        "subcategory": "Subcategoría",
+        "species": "Especie",
+        "price_pvpr": "Precio (PVPR)",
+        "price_per_unit": "Precio por unidad",
+        "min_purchase_qty": "Compra mínima",
+        "size_label": "Talla",
+        "color": "Color",
+        "scent": "Aroma",
+        "weight_g": "Peso (g)",
+        "length_cm": "Largo (cm)",
+        "width_cm": "Ancho (cm)",
+        "height_cm": "Alto (cm)",
+        "neck_cm": "Cuello (cm)",
+        "chest_cm": "Pecho (cm)",
+        "body_cm": "Cuerpo (cm)",
+        "dog_weight_kg": "Peso perro (kg)",
+        "cat_weight_kg": "Peso gato (kg)",
+        "change_flag": "Estado",
+    }
+    labels_en = {
+        "field": "Field",
+        "name_es": "Name",
+        "ean": "EAN",
+        "category": "Category",
+        "subcategory": "Subcategory",
+        "species": "Species",
+        "price_pvpr": "Price (PVPR)",
+        "price_per_unit": "Price per unit",
+        "min_purchase_qty": "Min purchase qty",
+        "size_label": "Size",
+        "color": "Color",
+        "scent": "Scent",
+        "weight_g": "Weight (g)",
+        "length_cm": "Length (cm)",
+        "width_cm": "Width (cm)",
+        "height_cm": "Height (cm)",
+        "neck_cm": "Neck (cm)",
+        "chest_cm": "Chest (cm)",
+        "body_cm": "Body (cm)",
+        "dog_weight_kg": "Dog weight (kg)",
+        "cat_weight_kg": "Cat weight (kg)",
+        "change_flag": "Status",
+    }
+    labels = labels_es if lang.startswith("es") else labels_en
+
+    products = compare_result.get("products") or []
+    if not isinstance(products, list) or not products:
+        return ""
+
+    def _escape_md(v: str) -> str:
+        return (v or "").replace("|", "\\|").replace("\n", " ").strip()
+
+    def _fmt_range(v: Any) -> str:
+        if not (isinstance(v, list) and len(v) == 2):
+            return ""
+        lo, hi = v[0], v[1]
+        if lo is None and hi is None:
+            return "—"
+        if lo is None:
+            return f"≤ {hi}"
+        if hi is None:
+            return f"≥ {lo}"
+        if lo == hi:
+            return str(lo)
+        return f"{lo}–{hi}"
+
+    def _fmt_value(key: str, v: Any) -> str:
+        if v is None:
+            return "—"
+        if isinstance(v, str):
+            s = v.strip()
+            return _escape_md(s) if s else "—"
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if isinstance(v, int):
+            return str(v)
+        if isinstance(v, float):
+            if key in {"price_pvpr", "price_per_unit"}:
+                return f"€{v:.2f}"
+            return f"{v:.2f}".rstrip("0").rstrip(".")
+        if isinstance(v, list):
+            if len(v) == 2 and all((isinstance(x, (int, float)) or x is None) for x in v):
+                return _fmt_range(v)
+            return _escape_md(", ".join(str(x) for x in v if x is not None)) or "—"
+        return _escape_md(str(v)) or "—"
+
+    headers: list[str] = [labels["field"]]
+    for p in products:
+        brand = str(p.get("brand") or "").strip()
+        sku = str(p.get("sku") or "").strip()
+        if brand and sku:
+            headers.append(_escape_md(f"{brand} · {sku}"))
+        elif sku:
+            headers.append(_escape_md(sku))
+        else:
+            headers.append("—")
+
+    row_keys = [
+        "name_es",
+        "ean",
+        "category",
+        "subcategory",
+        "species",
+        "price_pvpr",
+        "price_per_unit",
+        "min_purchase_qty",
+        "size_label",
+        "color",
+        "scent",
+        "weight_g",
+        "length_cm",
+        "width_cm",
+        "height_cm",
+        "neck_cm",
+        "chest_cm",
+        "body_cm",
+        "dog_weight_kg",
+        "cat_weight_kg",
+        "change_flag",
+    ]
+
+    rows: list[list[str]] = []
+    for k in row_keys:
+        vals = [_fmt_value(k, p.get(k)) for p in products]
+        if all(v == "—" for v in vals):
+            continue
+        rows.append([_escape_md(labels.get(k, k))] + vals)
+
+    if not rows:
+        return ""
+
+    out_lines = []
+    out_lines.append("| " + " | ".join(headers) + " |")
+    out_lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+    for r in rows:
+        out_lines.append("| " + " | ".join(r) + " |")
+    return "\n".join(out_lines)
+
+
 # --------------------------------------------------------------------------
 # Tool dispatcher
 # --------------------------------------------------------------------------
@@ -964,6 +1122,9 @@ def run_tool_loop(
                                    embedder=embedder, bm25=bm25,
                                    bm25_chunks=bm25_chunks)
 
+            if name == "compare_products" and isinstance(result, dict):
+                compare_result = result
+
             tc_total = result.get("total_count")
             if isinstance(tc_total, int) and tc_total >= 0:
                 sources_total = tc_total if sources_total is None else max(sources_total, tc_total)
@@ -1000,6 +1161,7 @@ def run_tool_loop(
         "tool_trace": tool_trace,
         "retrieved_products": retrieved_products,
         "sources_total": sources_total,
+        "compare_result": compare_result,
         "model": model,
         "rounds": len(tool_trace),
     }
@@ -1038,7 +1200,7 @@ def run_tool_loop_stream(
     retrieved_products: list[dict[str, Any]] = []
     answer = ""
     sources_total: int | None = None
-    sources_total: int | None = None
+    compare_result: dict[str, Any] | None = None
 
     try:
         for round_idx in range(max_rounds):
@@ -1080,6 +1242,9 @@ def run_tool_loop_stream(
                     bm25=bm25,
                     bm25_chunks=bm25_chunks,
                 )
+
+                if name == "compare_products" and isinstance(result, dict):
+                    compare_result = result
 
                 tc_total = result.get("total_count")
                 if isinstance(tc_total, int) and tc_total >= 0:
@@ -1134,6 +1299,7 @@ def run_tool_loop_stream(
             "tool_trace": tool_trace,
             "retrieved_products": retrieved_products,
             "sources_total": sources_total,
+            "compare_result": compare_result,
             "model": model,
             "rounds": len(tool_trace),
         }

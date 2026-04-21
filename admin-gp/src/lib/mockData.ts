@@ -2,7 +2,7 @@ export interface QueryTrace {
   id: string;
   query: string;
   answer: string;
-  intent: 'product_search' | 'barcode_lookup' | 'price_check' | 'other';
+  intent: 'product_search' | 'barcode_lookup' | 'order_status' | 'general_qa' | 'other';
   intent_confidence: number;
   latency: number;
   timestamp: string;
@@ -22,18 +22,18 @@ export const summaryStats = {
 };
 
 export const queryVolumeData = [
-  { hour: '00', product_search: 5, barcode_lookup: 2, price_check: 1, other: 1 },
-  { hour: '02', product_search: 2, barcode_lookup: 1, price_check: 0, other: 1 },
-  { hour: '04', product_search: 1, barcode_lookup: 0, price_check: 0, other: 0 },
-  { hour: '06', product_search: 8, barcode_lookup: 3, price_check: 2, other: 1 },
-  { hour: '08', product_search: 15, barcode_lookup: 7, price_check: 4, other: 2 },
-  { hour: '10', product_search: 25, barcode_lookup: 12, price_check: 8, other: 5 },
-  { hour: '12', product_search: 35, barcode_lookup: 15, price_check: 10, other: 6 },
-  { hour: '14', product_search: 30, barcode_lookup: 10, price_check: 9, other: 4 },
-  { hour: '16', product_search: 32, barcode_lookup: 14, price_check: 11, other: 7 },
-  { hour: '18', product_search: 28, barcode_lookup: 11, price_check: 8, other: 5 },
-  { hour: '20', product_search: 20, barcode_lookup: 8, price_check: 6, other: 3 },
-  { hour: '22', product_search: 12, barcode_lookup: 5, price_check: 3, other: 2 },
+  { hour: '00', product_search: 5, barcode_lookup: 2, order_status: 1, general_qa: 0, other: 1 },
+  { hour: '02', product_search: 2, barcode_lookup: 1, order_status: 0, general_qa: 0, other: 1 },
+  { hour: '04', product_search: 1, barcode_lookup: 0, order_status: 0, general_qa: 0, other: 0 },
+  { hour: '06', product_search: 8, barcode_lookup: 3, order_status: 1, general_qa: 1, other: 1 },
+  { hour: '08', product_search: 15, barcode_lookup: 7, order_status: 2, general_qa: 2, other: 2 },
+  { hour: '10', product_search: 25, barcode_lookup: 12, order_status: 5, general_qa: 3, other: 5 },
+  { hour: '12', product_search: 35, barcode_lookup: 15, order_status: 6, general_qa: 4, other: 6 },
+  { hour: '14', product_search: 30, barcode_lookup: 10, order_status: 5, general_qa: 4, other: 4 },
+  { hour: '16', product_search: 32, barcode_lookup: 14, order_status: 6, general_qa: 5, other: 7 },
+  { hour: '18', product_search: 28, barcode_lookup: 11, order_status: 4, general_qa: 4, other: 5 },
+  { hour: '20', product_search: 20, barcode_lookup: 8, order_status: 3, general_qa: 3, other: 3 },
+  { hour: '22', product_search: 12, barcode_lookup: 5, order_status: 2, general_qa: 1, other: 2 },
 ];
 
 export const latencyDistributionData = [
@@ -63,7 +63,8 @@ export const confidenceOverTimeData = [
 export const intentBreakdownData = [
   { name: 'Product Search', value: 63, color: '#3b82f6' },
   { name: 'Barcode Lookup', value: 21, color: '#10b981' },
-  { name: 'Price Check', value: 11, color: '#f59e0b' },
+  { name: 'Order Status', value: 11, color: '#f59e0b' },
+  { name: 'General Q&A', value: 5, color: '#a855f7' },
 ];
 
 export const languageDistributionData = [
@@ -108,7 +109,7 @@ export const recentQueries: QueryTrace[] = [
     id: '3',
     query: '¿Precio de Royal Canin Medium?',
     answer: 'El precio para Royal Canin Medium Adult es...',
-    intent: 'price_check',
+    intent: 'general_qa',
     intent_confidence: 0.87,
     latency: 12.1,
     timestamp: '2026-04-16T09:52:05',

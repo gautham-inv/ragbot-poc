@@ -423,7 +423,7 @@ export default function Home() {
   const sampleQueries = [
     { label: "Precio del TR00400" },
     { label: "Barcode de PT05060FX" },
-    { label: "Marca en la pagina 300" },
+    { label: "Marca en la página 300" },
     { label: "Buscar KONG Wubba Zoo" }
   ];
 
@@ -464,12 +464,12 @@ export default function Home() {
               <div className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
                 <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
               </div>
-              <h1 className="text-2xl font-semibold text-slate-800 md:text-3xl">
-                Chatea con tu catalogo de productos (Chat with your product catalog)
-              </h1>
-              <p className="mt-3 text-sm text-slate-500">
-                Busca entre miles de SKUs, precios y tablas en 396 paginas de datos (Searching through thousands of SKUs, prices, and tables across 396 pages of data).
-              </p>
+               <h1 className="text-2xl font-semibold text-slate-800 md:text-3xl">
+                 Chatea con tu catálogo de productos (Chat with your product catalog)
+               </h1>
+               <p className="mt-3 text-sm text-slate-500">
+                 Busca entre miles de SKUs, precios y tablas en 396 páginas de datos (Searching through thousands of SKUs, prices, and tables across 396 pages of data).
+               </p>
               <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
                 {sampleQueries.map((q) => (
                   <button
@@ -521,7 +521,24 @@ export default function Home() {
                             strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                             ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
                             ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
-                            code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>
+                            code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>,
+                            table: ({ children }) => (
+                              <div className="w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                <table className="w-full border-collapse text-left text-[13px]">{children}</table>
+                              </div>
+                            ),
+                            thead: ({ children }) => <thead className="bg-slate-50">{children}</thead>,
+                            th: ({ children }) => (
+                              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold text-slate-700">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="align-top border-b border-slate-100 px-3 py-2 text-slate-700">
+                                {children}
+                              </td>
+                            ),
+                            tr: ({ children }) => <tr className="hover:bg-slate-50/50">{children}</tr>,
                           }}
                         >
                           {m.content || ""}

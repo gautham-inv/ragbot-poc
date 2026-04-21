@@ -32,7 +32,8 @@ export const QueryVolumeChart: React.FC<ChartProps> = ({ data, title }) => (
           <Legend iconType="circle" wrapperStyle={{ paddingTop: '10px', fontSize: '11px' }} />
           <Bar dataKey="product_search" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
           <Bar dataKey="barcode_lookup" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-          <Bar dataKey="price_check" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="order_status" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="general_qa" stackId="a" fill="#a855f7" radius={[0, 0, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>

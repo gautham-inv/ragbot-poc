@@ -42,11 +42,11 @@ export async function GET(request: Request) {
     }
 
     // ---------------- Per-hour buckets ----------------
-    const hourlyVolume: Record<string, { hour: string; product_search: number; barcode_lookup: number; price_check: number; other: number }> = {};
+    const hourlyVolume: Record<string, { hour: string; product_search: number; barcode_lookup: number; order_status: number; general_qa: number; other: number }> = {};
     const confidenceSequence: Record<string, { hour: string; confidence: number; count: number }> = {};
     for (let i = 0; i < 24; i++) {
       const h = i.toString().padStart(2, "0");
-      hourlyVolume[h] = { hour: h, product_search: 0, barcode_lookup: 0, price_check: 0, other: 0 };
+      hourlyVolume[h] = { hour: h, product_search: 0, barcode_lookup: 0, order_status: 0, general_qa: 0, other: 0 };
       confidenceSequence[h] = { hour: h, confidence: 0, count: 0 };
     }
 
@@ -82,6 +82,7 @@ export async function GET(request: Request) {
       } catch (e) {
         console.warn(`[analytics] failed to parse trace.output for ${trace.id}:`, e);
       }
+      const toolTrace = outputData.tool_trace;
 
       // ---- latency (Langfuse: seconds, float) ----
       const latencyInSec =
@@ -109,7 +110,7 @@ export async function GET(request: Request) {
       totalConfidence += conf;
       if (conf > 0 && conf < 0.6) lowConfidence++;
 
-      // ---- SKUs in answer (for top-SKU table) ----
+      // ---- SKUs in answer (for KPI: SKU hit rate) ----
       const skuCounts = outputData.sku_counts_in_answer || {};
       const skuProductNamesRaw = outputData.sku_product_names || {};
       const skuProductNames: Record<string, string> = {};
@@ -121,13 +122,45 @@ export async function GET(request: Request) {
         }
       }
       if (Object.keys(skuCounts).length > 0) skuHits++;
-      Object.entries(skuCounts).forEach(([sku, count]: [string, any]) => {
-        const skuKey = String(sku || "").trim();
-        if (!skuKey) return;
-        const name = skuProductNames[skuKey] || skuProductNames[skuKey.toUpperCase()] || skuKey;
-        if (!topSKUsMap[skuKey]) topSKUsMap[skuKey] = { product: name, hits: 0 };
-        topSKUsMap[skuKey].hits += typeof count === "number" ? count : 1;
-      });
+
+      // ---- SKUs retrieved (for "Top SKUs retrieved" table) ----
+      let retrievedSkus: string[] = [];
+      if (Array.isArray(outputData.retrieved_skus)) {
+        retrievedSkus = (outputData.retrieved_skus as unknown[])
+          .map((v) => String(v || "").trim())
+          .filter(Boolean);
+      }
+      // Fallback for older tool-loop traces without retrieved_skus:
+      // infer from tool_trace get_product calls (sku arguments).
+      if (retrievedSkus.length === 0 && Array.isArray(toolTrace)) {
+        for (const step of toolTrace) {
+          if (!step || typeof step !== "object") continue;
+          const stepName = String((step as any).name || "").trim();
+          if (stepName !== "get_product") continue;
+          const args = (step as any).arguments;
+          const skuKey = args && typeof args === "object" ? String(args.sku || "").trim() : "";
+          if (skuKey) retrievedSkus.push(skuKey);
+        }
+      }
+
+      if (retrievedSkus.length > 0) {
+        for (const sku of retrievedSkus) {
+          const skuKey = String(sku || "").trim();
+          if (!skuKey) continue;
+          const name = skuProductNames[skuKey] || skuProductNames[skuKey.toUpperCase()] || skuKey;
+          if (!topSKUsMap[skuKey]) topSKUsMap[skuKey] = { product: name, hits: 0 };
+          topSKUsMap[skuKey].hits += 1;
+        }
+      } else {
+        // Final fallback: use cited SKUs so the table isn't empty.
+        Object.entries(skuCounts).forEach(([sku, count]: [string, any]) => {
+          const skuKey = String(sku || "").trim();
+          if (!skuKey) return;
+          const name = skuProductNames[skuKey] || skuProductNames[skuKey.toUpperCase()] || skuKey;
+          if (!topSKUsMap[skuKey]) topSKUsMap[skuKey] = { product: name, hits: 0 };
+          topSKUsMap[skuKey].hits += typeof count === "number" ? count : 1;
+        });
+      }
 
       // ---- retrieved_brands / categories / subcategories ----
       const brandsMap = outputData.retrieved_brands || {};
@@ -156,7 +189,6 @@ export async function GET(request: Request) {
       }
 
       // ---- tool_trace (only present on tools path) ----
-      const toolTrace = outputData.tool_trace;
       if (Array.isArray(toolTrace) && toolTrace.length > 0) {
         pathCounts.tools++;
         for (const step of toolTrace) {
@@ -245,8 +277,10 @@ export async function GET(request: Request) {
               ? "#3b82f6"
               : name === "barcode_lookup"
               ? "#10b981"
-              : name === "price_check"
+              : name === "order_status"
               ? "#f59e0b"
+              : name === "general_qa"
+              ? "#a855f7"
               : "#94a3b8",
         })),
         languages: Object.entries(languageCounts).map(([name, value]) => ({ name, value })),
