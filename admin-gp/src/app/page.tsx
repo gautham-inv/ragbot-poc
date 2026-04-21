@@ -211,26 +211,13 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* Main Charts Row */}
-        <section className="grid charts-grid mb-8" style={{ marginBottom: '1.5rem' }}>
-          <QueryVolumeChart data={charts.volume} title="Query volume by hour" />
-          <LatencyDistributionChart data={charts.latency} title="Latency distribution" />
-        </section>
-
-        {/* Secondary Charts Row: Intent & Language */}
+        {/* ===== TOP ===== Recent queries + top-SKUs */}
         <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
-          <IntentDonutChart data={charts.intent} title="Intent breakdown" />
-          <LanguageDistributionChart data={charts.languages} title="Query languages" />
+          <TopSKUsTable data={topSKUs} />
+          <RecentQueriesList data={recent} />
         </section>
 
-        {/* Intent classifier confidence (live data only) */}
-        {hasConfidence && (
-          <section className="grid mb-8" style={{ marginBottom: '1.5rem' }}>
-            <ConfidenceLineChart data={charts.confidence} title="Intent-classifier confidence by hour" />
-          </section>
-        )}
-
-        {/* Catalog demand row: retrieved brands + categories */}
+        {/* ===== TOP ===== Most-retrieved brands + category demand */}
         {(hasBrands || hasCategories) && (
           <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
             {hasBrands && <TopBrandsChart data={charts.topBrands} title="Most-retrieved brands" />}
@@ -238,26 +225,39 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* Sub-demand + tool routing row */}
-        {(hasSubcategories || hasTools) && (
-          <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
-            {hasSubcategories && <TopSubcategoriesChart data={charts.topSubcategories} title="Top subcategories" />}
-            {hasTools && <ToolUsageChart data={charts.toolUsage} title="Tool usage (LLM routing)" />}
+        {/* ===== TOP ===== Top subcategories */}
+        {hasSubcategories && (
+          <section className="grid mb-8" style={{ marginBottom: '1.5rem' }}>
+            <TopSubcategoriesChart data={charts.topSubcategories} title="Top subcategories" />
           </section>
         )}
 
-        {/* Path distribution (stream vs tools) */}
+        {/* ===== MIDDLE ===== Query volume + intent breakdown */}
+        <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+          <QueryVolumeChart data={charts.volume} title="Query volume by hour" />
+          <IntentDonutChart data={charts.intent} title="Intent breakdown" />
+        </section>
+
+        {/* ===== MIDDLE ===== Languages + confidence */}
+        <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+          <LanguageDistributionChart data={charts.languages} title="Query languages" />
+          {hasConfidence && (
+            <ConfidenceLineChart data={charts.confidence} title="Intent-classifier confidence by hour" />
+          )}
+        </section>
+
+        {/* ===== BOTTOM ===== Latency distribution + tool usage */}
+        <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+          <LatencyDistributionChart data={charts.latency} title="Latency distribution" />
+          {hasTools && <ToolUsageChart data={charts.toolUsage} title="Tool usage (LLM routing)" />}
+        </section>
+
+        {/* ===== BOTTOM ===== Path distribution (stream vs tools) */}
         {hasPaths && (
-          <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+          <section className="grid mb-8" style={{ marginBottom: '1.5rem' }}>
             <PathDistributionChart data={charts.pathDistribution} title="Retrieval path (stream vs tools)" />
           </section>
         )}
-
-        {/* Data Row */}
-        <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
-          <TopSKUsTable data={topSKUs} />
-          <RecentQueriesList data={recent} />
-        </section>
 
       </div>
 
