@@ -5,9 +5,16 @@ import {
   QueryVolumeChart,
   LatencyDistributionChart,
   IntentDonutChart,
-  LanguageDistributionChart
+  LanguageDistributionChart,
+  ConfidenceLineChart,
+  TopBrandsChart,
+  TopCategoriesChart,
+  TopSubcategoriesChart,
+  ToolUsageChart,
+  PathDistributionChart
 } from '@/components/DashboardCharts';
 import { TopSKUsTable, RecentQueriesList } from '@/components/DataTables';
+import { StatCard } from '@/components/StatCard';
 import {
   queryVolumeData as mockVolume,
   latencyDistributionData as mockLatency,
@@ -79,6 +86,18 @@ export default function Dashboard() {
   const topSKUs = data?.topSKUs || mockTopSKUs;
   const recent = data?.recentQueries || mockRecent;
 
+  // KPI strip — only shown when live data is available.
+  const kpis = data?.kpis;
+
+  // New chart sections — rendered only when live data is present so that
+  // the existing mock-data widgets above don't change behavior.
+  const hasConfidence = Array.isArray(charts?.confidence) && charts.confidence.some((pt: any) => pt?.confidence != null);
+  const hasBrands = Array.isArray(charts?.topBrands) && charts.topBrands.length > 0;
+  const hasCategories = Array.isArray(charts?.topCategories) && charts.topCategories.length > 0;
+  const hasSubcategories = Array.isArray(charts?.topSubcategories) && charts.topSubcategories.length > 0;
+  const hasTools = Array.isArray(charts?.toolUsage) && charts.toolUsage.length > 0;
+  const hasPaths = Array.isArray(charts?.pathDistribution) && charts.pathDistribution.length > 0;
+
   return (
     <main className="dashboard-container">
       {showSplash ? (
@@ -149,6 +168,49 @@ export default function Dashboard() {
       </header>
 
       <div style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 0.3s' }}>
+        {/* KPI strip — only rendered when we have live data */}
+        {kpis && (
+          <section
+            className="grid mb-8"
+            style={{
+              marginBottom: '1.5rem',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: '1rem'
+            }}
+          >
+            <StatCard
+              label="Total queries"
+              value={kpis.total_queries ?? 0}
+              subValue={timeRange}
+              color="#3b82f6"
+            />
+            <StatCard
+              label="Latency P50 / P95"
+              value={`${(kpis.p50_latency_sec ?? 0).toFixed(1)}s`}
+              subValue={`P95 ${(kpis.p95_latency_sec ?? 0).toFixed(1)}s`}
+              color={(kpis.p95_latency_sec ?? 0) > 15 ? '#ef4444' : '#10b981'}
+            />
+            <StatCard
+              label="Zero-result rate"
+              value={`${kpis.zero_result_rate ?? 0}%`}
+              subValue="Queries that returned nothing"
+              color={(kpis.zero_result_rate ?? 0) > 15 ? '#ef4444' : '#10b981'}
+            />
+            <StatCard
+              label="Fallback rate"
+              value={`${kpis.fallback_rate ?? 0}%`}
+              subValue="Fallback / retry path triggered"
+              color={(kpis.fallback_rate ?? 0) > 10 ? '#f59e0b' : '#10b981'}
+            />
+            <StatCard
+              label="SKU hit rate"
+              value={`${kpis.sku_hit_rate ?? 0}%`}
+              subValue="Answers that cited at least one SKU"
+              color="#8b5cf6"
+            />
+          </section>
+        )}
+
         {/* Main Charts Row */}
         <section className="grid charts-grid mb-8" style={{ marginBottom: '1.5rem' }}>
           <QueryVolumeChart data={charts.volume} title="Query volume by hour" />
@@ -160,6 +222,36 @@ export default function Dashboard() {
           <IntentDonutChart data={charts.intent} title="Intent breakdown" />
           <LanguageDistributionChart data={charts.languages} title="Query languages" />
         </section>
+
+        {/* Intent classifier confidence (live data only) */}
+        {hasConfidence && (
+          <section className="grid mb-8" style={{ marginBottom: '1.5rem' }}>
+            <ConfidenceLineChart data={charts.confidence} title="Intent-classifier confidence by hour" />
+          </section>
+        )}
+
+        {/* Catalog demand row: retrieved brands + categories */}
+        {(hasBrands || hasCategories) && (
+          <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+            {hasBrands && <TopBrandsChart data={charts.topBrands} title="Most-retrieved brands" />}
+            {hasCategories && <TopCategoriesChart data={charts.topCategories} title="Category demand" />}
+          </section>
+        )}
+
+        {/* Sub-demand + tool routing row */}
+        {(hasSubcategories || hasTools) && (
+          <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+            {hasSubcategories && <TopSubcategoriesChart data={charts.topSubcategories} title="Top subcategories" />}
+            {hasTools && <ToolUsageChart data={charts.toolUsage} title="Tool usage (LLM routing)" />}
+          </section>
+        )}
+
+        {/* Path distribution (stream vs tools) */}
+        {hasPaths && (
+          <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>
+            <PathDistributionChart data={charts.pathDistribution} title="Retrieval path (stream vs tools)" />
+          </section>
+        )}
 
         {/* Data Row */}
         <section className="grid data-grid mb-8" style={{ marginBottom: '1.5rem' }}>

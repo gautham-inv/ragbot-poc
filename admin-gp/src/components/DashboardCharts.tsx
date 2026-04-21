@@ -140,3 +140,88 @@ export const LanguageDistributionChart: React.FC<ChartProps> = ({ data, title })
     </div>
   </div>
 );
+
+/**
+ * Horizontal bar chart tuned for top-N categorical aggregations
+ * (retrieved brands, subcategories, tool-usage counts, etc.).
+ *
+ * Expected data shape: [{ name, value, color? }].
+ */
+const HORIZ_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#84cc16'];
+
+export const TopBrandsChart: React.FC<ChartProps> = ({ data, title }) => (
+  <div className="card" style={{ height: '360px', display: 'flex', flexDirection: 'column' }}>
+    <h3 className="heading-2 mb-4" style={{ marginBottom: '1rem' }}>{title}</h3>
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 16, top: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+          <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+          <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={140} />
+          <Tooltip cursor={{ fill: 'transparent' }} />
+          <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={18}>
+            {data.map((entry, i) => (
+              <Cell key={`cell-${i}`} fill={entry?.color || HORIZ_PALETTE[i % HORIZ_PALETTE.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
+
+export const TopSubcategoriesChart: React.FC<ChartProps> = ({ data, title }) => (
+  <div className="card" style={{ height: '360px', display: 'flex', flexDirection: 'column' }}>
+    <h3 className="heading-2 mb-4" style={{ marginBottom: '1rem' }}>{title}</h3>
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 16, top: 4, bottom: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+          <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+          <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#64748b' }} width={160} />
+          <Tooltip cursor={{ fill: 'transparent' }} />
+          <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={16}>
+            {data.map((entry, i) => (
+              <Cell key={`cell-${i}`} fill={entry?.color || HORIZ_PALETTE[i % HORIZ_PALETTE.length]} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
+
+/**
+ * Donut renderer reused for {category / tool / path} distributions.
+ * Filters zero-value entries and uses the `color` field if provided by the API.
+ */
+const DonutChart: React.FC<ChartProps & { innerRadius?: number; outerRadius?: number }> = ({
+  data,
+  title,
+  innerRadius = 55,
+  outerRadius = 80,
+}) => {
+  const safe = (data || []).filter((d) => Number(d?.value) > 0);
+  return (
+    <div className="card" style={{ height: '320px', display: 'flex', flexDirection: 'column' }}>
+      <h3 className="heading-2 mb-4" style={{ marginBottom: '1rem' }}>{title}</h3>
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <PieChart>
+            <Pie data={safe} cx="50%" cy="50%" innerRadius={innerRadius} outerRadius={outerRadius} paddingAngle={4} dataKey="value">
+              {safe.map((entry, i) => (
+                <Cell key={`cell-${i}`} fill={entry?.color || HORIZ_PALETTE[i % HORIZ_PALETTE.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend verticalAlign="middle" align="right" layout="vertical" iconType="circle" wrapperStyle={{ fontSize: '11px' }} />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+export const TopCategoriesChart: React.FC<ChartProps> = (props) => <DonutChart {...props} />;
+export const ToolUsageChart: React.FC<ChartProps> = (props) => <DonutChart {...props} />;
+export const PathDistributionChart: React.FC<ChartProps> = (props) => <DonutChart {...props} innerRadius={50} outerRadius={75} />;

@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server";
 import { langfuse } from "@/lib/langfuse";
 
+/**
+ * GET /admin-api/analytics
+ *
+ * Aggregates Langfuse traces into the dashboard payload. All fields below are
+ * derived from what backend/app.py logs via span.update():
+ *
+ *   input:  query, intent, intent_confidence, user_language
+ *   output: retrieval_latency_ms, retrieval_success, retrieved_count,
+ *           retrieved_brands, retrieved_categories, retrieved_subcategories,
+ *           retrieved_skus, sku_product_names, sku_counts_in_answer,
+ *           answer, fallback_triggered, no_result, tool_trace (tools path)
+ *   trace:  latency (seconds, float), timestamp (ISO)
+ *
+ * If a field is missing (older traces, OCR-era data), the aggregation silently
+ * skips it — dashboards still render, empty charts are replaced with mocks
+ * client-side.
+ */
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const range = searchParams.get("range") || "24h";
@@ -24,36 +41,53 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "No traces found for this period" }, { status: 404 });
     }
 
-    // Initialize sequential 24-hour volume and confidence arrays
-    const hourlyVolume: Record<string, any> = {};
+    // ---------------- Per-hour buckets ----------------
+    const hourlyVolume: Record<string, { hour: string; product_search: number; barcode_lookup: number; price_check: number; other: number }> = {};
     const confidenceSequence: Record<string, { hour: string; confidence: number; count: number }> = {};
-    
     for (let i = 0; i < 24; i++) {
-      const h = i.toString().padStart(2, '0');
+      const h = i.toString().padStart(2, "0");
       hourlyVolume[h] = { hour: h, product_search: 0, barcode_lookup: 0, price_check: 0, other: 0 };
       confidenceSequence[h] = { hour: h, confidence: 0, count: 0 };
     }
 
-    let totalLatency = 0;
-    let totalConfidence = 0;
-    let skuHits = 0;
-    let zeroResults = 0;
+    // ---------------- Aggregators ----------------
     const intentCounts: Record<string, number> = {};
     const languageCounts: Record<string, number> = {};
-    const latencyBuckets = { "<2s": 0, "2-5s": 0, "5-10s": 0, "10-20s": 0, "20-30s": 0, ">30s": 0 };
+    const latencyBuckets: Record<string, number> = { "<2s": 0, "2-5s": 0, "5-10s": 0, "10-20s": 0, "20-30s": 0, ">30s": 0 };
     const topSKUsMap: Record<string, { product: string; hits: number }> = {};
+
+    const brandCounts: Record<string, number> = {};
+    const categoryCounts: Record<string, number> = {};
+    const subcategoryCounts: Record<string, number> = {};
+    const toolCounts: Record<string, number> = {};
+    const pathCounts: Record<string, number> = { stream: 0, tools: 0 };
+
+    const latenciesSec: number[] = [];
+    let zeroResults = 0;
+    let fallbackTriggered = 0;
+    let lowConfidence = 0; // intent_confidence < 0.6
+    let totalConfidence = 0;
+    let skuHits = 0;
 
     traces.forEach((trace: any) => {
       let inputData: any = {};
       let outputData: any = {};
-      try { inputData = typeof trace.input === 'string' ? JSON.parse(trace.input) : trace.input || {}; } catch(e) {}
-      try { outputData = typeof trace.output === 'string' ? JSON.parse(trace.output) : trace.output || {}; } catch(e) {}
+      try {
+        inputData = typeof trace.input === "string" ? JSON.parse(trace.input) : trace.input || {};
+      } catch (e) {
+        console.warn(`[analytics] failed to parse trace.input for ${trace.id}:`, e);
+      }
+      try {
+        outputData = typeof trace.output === "string" ? JSON.parse(trace.output) : trace.output || {};
+      } catch (e) {
+        console.warn(`[analytics] failed to parse trace.output for ${trace.id}:`, e);
+      }
 
-      // Latency
+      // ---- latency (Langfuse: seconds, float) ----
       const latencyInSec =
         (typeof trace.latency === "number" ? trace.latency : null) ??
         (typeof trace.duration === "number" ? trace.duration : 0);
-      totalLatency += latencyInSec;
+      latenciesSec.push(latencyInSec);
       if (latencyInSec < 2) latencyBuckets["<2s"]++;
       else if (latencyInSec < 5) latencyBuckets["2-5s"]++;
       else if (latencyInSec < 10) latencyBuckets["5-10s"]++;
@@ -61,7 +95,7 @@ export async function GET(request: Request) {
       else if (latencyInSec < 30) latencyBuckets["20-30s"]++;
       else latencyBuckets[">30s"]++;
 
-      // Intent & Language
+      // ---- intent & language ----
       const intent = inputData.intent || "other";
       intentCounts[intent] = (intentCounts[intent] || 0) + 1;
       const langRaw = inputData.user_language;
@@ -70,11 +104,12 @@ export async function GET(request: Request) {
         languageCounts[lang] = (languageCounts[lang] || 0) + 1;
       }
 
-      // Confidence
-      const conf = inputData.intent_confidence || 0;
+      // ---- confidence ----
+      const conf = typeof inputData.intent_confidence === "number" ? inputData.intent_confidence : 0;
       totalConfidence += conf;
+      if (conf > 0 && conf < 0.6) lowConfidence++;
 
-      // SKUs
+      // ---- SKUs in answer (for top-SKU table) ----
       const skuCounts = outputData.sku_counts_in_answer || {};
       const skuProductNamesRaw = outputData.sku_product_names || {};
       const skuProductNames: Record<string, string> = {};
@@ -85,19 +120,62 @@ export async function GET(request: Request) {
           if (skuKey && name) skuProductNames[skuKey] = name;
         }
       }
-      if (Object.keys(skuCounts).length > 0) skuHits++; else zeroResults++;
+      if (Object.keys(skuCounts).length > 0) skuHits++;
       Object.entries(skuCounts).forEach(([sku, count]: [string, any]) => {
         const skuKey = String(sku || "").trim();
         if (!skuKey) return;
         const name = skuProductNames[skuKey] || skuProductNames[skuKey.toUpperCase()] || skuKey;
         if (!topSKUsMap[skuKey]) topSKUsMap[skuKey] = { product: name, hits: 0 };
-        topSKUsMap[skuKey].hits += (typeof count === 'number' ? count : 1);
+        topSKUsMap[skuKey].hits += typeof count === "number" ? count : 1;
       });
 
-      // Sequential Data Mapping
-      const hour = new Date(trace.timestamp).getUTCHours().toString().padStart(2, '0');
+      // ---- retrieved_brands / categories / subcategories ----
+      const brandsMap = outputData.retrieved_brands || {};
+      if (brandsMap && typeof brandsMap === "object") {
+        for (const [b, n] of Object.entries(brandsMap as Record<string, unknown>)) {
+          const key = String(b || "").trim();
+          if (!key) continue;
+          brandCounts[key] = (brandCounts[key] || 0) + (Number(n) || 0);
+        }
+      }
+      const catsMap = outputData.retrieved_categories || {};
+      if (catsMap && typeof catsMap === "object") {
+        for (const [c, n] of Object.entries(catsMap as Record<string, unknown>)) {
+          const key = String(c || "").trim();
+          if (!key) continue;
+          categoryCounts[key] = (categoryCounts[key] || 0) + (Number(n) || 0);
+        }
+      }
+      const subcatsMap = outputData.retrieved_subcategories || {};
+      if (subcatsMap && typeof subcatsMap === "object") {
+        for (const [sc, n] of Object.entries(subcatsMap as Record<string, unknown>)) {
+          const key = String(sc || "").trim();
+          if (!key) continue;
+          subcategoryCounts[key] = (subcategoryCounts[key] || 0) + (Number(n) || 0);
+        }
+      }
+
+      // ---- tool_trace (only present on tools path) ----
+      const toolTrace = outputData.tool_trace;
+      if (Array.isArray(toolTrace) && toolTrace.length > 0) {
+        pathCounts.tools++;
+        for (const step of toolTrace) {
+          const name = step && typeof step === "object" ? String(step.name || "") : "";
+          if (!name) continue;
+          toolCounts[name] = (toolCounts[name] || 0) + 1;
+        }
+      } else {
+        pathCounts.stream++;
+      }
+
+      // ---- retrieval health flags ----
+      if (outputData.no_result === true) zeroResults++;
+      if (outputData.fallback_triggered === true) fallbackTriggered++;
+
+      // ---- hourly buckets ----
+      const hour = new Date(trace.timestamp).getUTCHours().toString().padStart(2, "0");
       if (hourlyVolume[hour]) {
-        if (hourlyVolume[hour][intent] !== undefined) hourlyVolume[hour][intent]++;
+        if ((hourlyVolume[hour] as any)[intent] !== undefined) (hourlyVolume[hour] as any)[intent]++;
         else hourlyVolume[hour].other++;
       }
       if (confidenceSequence[hour]) {
@@ -108,32 +186,106 @@ export async function GET(request: Request) {
 
     const total = traces.length;
 
-    // Finalize confidence sequence
-    const finalConfidence = Object.values(confidenceSequence).map(h => ({
+    // ---------------- Latency percentiles (sorted) ----------------
+    const sortedLatencies = [...latenciesSec].filter((v) => v >= 0).sort((a, b) => a - b);
+    const pctl = (p: number) => {
+      if (sortedLatencies.length === 0) return 0;
+      const idx = Math.min(sortedLatencies.length - 1, Math.floor(p * sortedLatencies.length));
+      return sortedLatencies[idx];
+    };
+    const p50 = pctl(0.5);
+    const p95 = pctl(0.95);
+
+    // ---------------- Confidence sequence ----------------
+    const finalConfidence = Object.values(confidenceSequence).map((h) => ({
       hour: h.hour,
-      confidence: h.count > 0 ? h.confidence / h.count : null
+      confidence: h.count > 0 ? h.confidence / h.count : null,
     }));
 
+    // ---------------- Sorted top-N helpers ----------------
+    const sortTopN = (m: Record<string, number>, n: number) =>
+      Object.entries(m)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, n);
+
+    const brandPalette = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#6366f1", "#f97316", "#84cc16"];
+    const withColors = (rows: { name: string; value: number }[]) =>
+      rows.map((r, i) => ({ ...r, color: brandPalette[i % brandPalette.length] }));
+
     return NextResponse.json({
+      kpis: {
+        total_queries: total,
+        p50_latency_sec: Number(p50.toFixed(2)),
+        p95_latency_sec: Number(p95.toFixed(2)),
+        zero_result_rate: total > 0 ? Math.round((zeroResults / total) * 100) : 0,
+        fallback_rate: total > 0 ? Math.round((fallbackTriggered / total) * 100) : 0,
+        avg_confidence: total > 0 ? Number((totalConfidence / total).toFixed(2)) : 0,
+        low_confidence_rate: total > 0 ? Math.round((lowConfidence / total) * 100) : 0,
+        sku_hit_rate: total > 0 ? Math.round((skuHits / total) * 100) : 0,
+      },
       charts: {
         volume: Object.values(hourlyVolume),
-        latency: Object.entries(latencyBuckets).map(([bucket, count]) => ({ bucket, count, color: bucket.includes('<') || bucket.includes('2-5s') ? '#10b981' : bucket.includes('5-10s') ? '#f59e0b' : '#ef4444' })),
+        latency: Object.entries(latencyBuckets).map(([bucket, count]) => ({
+          bucket,
+          count,
+          color:
+            bucket.includes("<") || bucket.includes("2-5s")
+              ? "#10b981"
+              : bucket.includes("5-10s")
+              ? "#f59e0b"
+              : "#ef4444",
+        })),
         confidence: finalConfidence,
-        intent: Object.entries(intentCounts).map(([name, value]) => ({ name, value, color: name === 'product_search' ? '#3b82f6' : name === 'barcode_lookup' ? '#10b981' : '#f59e0b' })),
-        languages: Object.entries(languageCounts).map(([name, value]) => ({ name, value }))
+        intent: Object.entries(intentCounts).map(([name, value]) => ({
+          name,
+          value,
+          color:
+            name === "product_search"
+              ? "#3b82f6"
+              : name === "barcode_lookup"
+              ? "#10b981"
+              : name === "price_check"
+              ? "#f59e0b"
+              : "#94a3b8",
+        })),
+        languages: Object.entries(languageCounts).map(([name, value]) => ({ name, value })),
+        topBrands: withColors(sortTopN(brandCounts, 10)),
+        topCategories: withColors(sortTopN(categoryCounts, 10)),
+        topSubcategories: withColors(sortTopN(subcategoryCounts, 10)),
+        toolUsage: withColors(sortTopN(toolCounts, 10)),
+        pathDistribution: withColors(
+          Object.entries(pathCounts)
+            .filter(([, v]) => v > 0)
+            .map(([name, value]) => ({ name, value }))
+        ),
       },
       topSKUs: Object.entries(topSKUsMap)
-        .map(([sku, v]) => ({ sku, product: v.product, hits: v.hits, frequency: Math.round((v.hits / total) * 100) }))
+        .map(([sku, v]) => ({
+          sku,
+          product: v.product,
+          hits: v.hits,
+          frequency: Math.round((v.hits / total) * 100),
+        }))
         .sort((a, b) => b.hits - a.hits)
         .slice(0, 5),
       recentQueries: traces.map((t: any) => {
         let input: any = {};
         let output: any = {};
-        try { input = typeof t.input === 'string' ? JSON.parse(t.input) : t.input || {}; } catch(e) {}
-        try { output = typeof t.output === 'string' ? JSON.parse(t.output) : t.output || {}; } catch(e) {}
+        try {
+          input = typeof t.input === "string" ? JSON.parse(t.input) : t.input || {};
+        } catch (e) {
+          console.warn(`[analytics] recentQueries: failed to parse input for ${t.id}:`, e);
+        }
+        try {
+          output = typeof t.output === "string" ? JSON.parse(t.output) : t.output || {};
+        } catch (e) {
+          console.warn(`[analytics] recentQueries: failed to parse output for ${t.id}:`, e);
+        }
         const latencyInSec =
           (typeof t.latency === "number" ? t.latency : null) ??
           (typeof t.duration === "number" ? t.duration : 0);
+        const hasToolTrace = Array.isArray(output.tool_trace) && output.tool_trace.length > 0;
         return {
           id: t.id,
           timestamp: t.timestamp,
@@ -141,14 +293,16 @@ export async function GET(request: Request) {
           intent: input.intent || "other",
           intent_confidence: input.intent_confidence || 0,
           latency: latencyInSec,
+          latency_known: typeof t.latency === "number" && t.latency > 0,
           answer: output.answer || "No response recorded",
-          status: latencyInSec > 15 ? 'critical' : 'success',
+          path: hasToolTrace ? "tools" : "stream",
+          tools_used: hasToolTrace ? output.tool_trace.map((s: any) => s?.name).filter(Boolean) : [],
+          status: output.no_result === true ? "zero_result" : latencyInSec > 15 ? "critical" : "success",
           rawInput: input,
-          rawOutput: output
+          rawOutput: output,
         };
-      })
+      }),
     });
-
   } catch (error: any) {
     console.error("Langfuse Analytics Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
