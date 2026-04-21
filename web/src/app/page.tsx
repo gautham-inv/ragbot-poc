@@ -176,11 +176,40 @@ export default function Home() {
 
     setInput("");
     setLoading(true);
-    setLoadingStatus("Starting...");
+    setLoadingStatus("Thinking...");
     setStreaming(false);
 
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+      // Prefer the tool-calling endpoint so aggregate queries (counts, distincts, etc.)
+      // are answered deterministically. Semantic queries still work via `semantic_search`.
+      const toolRes = await fetch(`${baseUrl}/api/chat_tools`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: text,
+          history: historyForBackend
+        })
+      });
+
+      if (toolRes.ok) {
+        const data = await toolRes.json();
+        const answer = typeof data?.answer === "string" ? data.answer : "No response.";
+        const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
+        updateAssistantMessage(assistantId, (m) => ({
+          ...m,
+          content: answer,
+          sources,
+          rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
+          enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
+        }));
+        setLoading(false);
+        setLoadingStatus(null);
+        return;
+      }
+
+      // Fallback to streaming RAG if the tools endpoint is unavailable for some reason.
       const res = await fetch(`${baseUrl}/api/chat_stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -191,7 +220,7 @@ export default function Home() {
       });
 
       if (!res.ok || !res.body) {
-        // Fallback to non-streaming response if streaming is unavailable.
+        // Final fallback to non-streaming response.
         const fallback = await fetch(`${baseUrl}/api/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -207,6 +236,8 @@ export default function Home() {
           rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
           enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
         }));
+        setLoading(false);
+        setLoadingStatus(null);
         return;
       }
 

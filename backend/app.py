@@ -90,12 +90,23 @@ def _call_openrouter(system_prompt: str, query: str) -> str:
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
 
-    provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
-    provider = None
-    if provider_only:
-        only = [p.strip() for p in provider_only.split(",") if p.strip()]
-        if only:
-            provider = {"only": only}
+    def _provider_pref(*, env_key: str) -> dict[str, Any] | None:
+        # Purpose-specific keys can explicitly disable provider forcing by being present but empty, e.g.
+        # OPENROUTER_REWRITE_PROVIDER_ONLY=
+        if env_key in os.environ:
+            raw = (os.getenv(env_key) or "").strip()
+            if not raw:
+                return None
+            only = [p.strip() for p in raw.split(",") if p.strip()]
+            return {"only": only} if only else None
+
+        raw = (os.getenv("OPENROUTER_PROVIDER_ONLY") or "").strip()
+        if not raw:
+            return None
+        only = [p.strip() for p in raw.split(",") if p.strip()]
+        return {"only": only} if only else None
+
+    provider = _provider_pref(env_key="OPENROUTER_ANSWER_PROVIDER_ONLY")
 
     with OpenRouter(
         http_referer="ragbot-poc",
@@ -120,17 +131,31 @@ def _call_openrouter(system_prompt: str, query: str) -> str:
     return str(res)
 
 
-def _openrouter_chat(messages: list[dict[str, str]], *, model: str) -> str:
+def _openrouter_chat(
+    messages: list[dict[str, str]],
+    *,
+    model: str,
+    provider_env_key: str = "OPENROUTER_PROVIDER_ONLY",
+) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY not set")
 
-    provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
-    provider = None
-    if provider_only:
-        only = [p.strip() for p in provider_only.split(",") if p.strip()]
-        if only:
-            provider = {"only": only}
+    def _provider_pref(*, env_key: str) -> dict[str, Any] | None:
+        if env_key in os.environ:
+            raw = (os.getenv(env_key) or "").strip()
+            if not raw:
+                return None
+            only = [p.strip() for p in raw.split(",") if p.strip()]
+            return {"only": only} if only else None
+
+        raw = (os.getenv("OPENROUTER_PROVIDER_ONLY") or "").strip()
+        if not raw:
+            return None
+        only = [p.strip() for p in raw.split(",") if p.strip()]
+        return {"only": only} if only else None
+
+    provider = _provider_pref(env_key=provider_env_key)
 
     with OpenRouter(
         http_referer="ragbot-poc",
@@ -467,7 +492,13 @@ def _route_intent_and_language(query: str) -> tuple[str, str, float]:
     import json
 
     allowed_intents = _get_allowed_intents()
-    model = os.getenv("OPENROUTER_INTENT_MODEL", os.getenv("OPENROUTER_REWRITE_MODEL", "qwen/qwen-turbo"))
+    model = os.getenv(
+        "OPENROUTER_INTENT_MODEL",
+        os.getenv(
+            "OPENROUTER_REWRITE_MODEL",
+            os.getenv("OPENROUTER_MODEL", "qwen/qwen-turbo"),
+        ),
+    )
 
     system = (
         "You are a classifier for a product-catalog assistant.\n"
@@ -481,7 +512,11 @@ def _route_intent_and_language(query: str) -> tuple[str, str, float]:
         {"role": "user", "content": (query or "").strip()},
     ]
 
-    raw = _openrouter_chat(messages, model=model)
+    raw = _openrouter_chat(
+        messages,
+        model=model,
+        provider_env_key="OPENROUTER_INTENT_PROVIDER_ONLY",
+    )
     raw = (raw or "").strip()
 
     try:
@@ -540,7 +575,10 @@ def _rewrite_query_with_history(query: str, history: list[dict[str, str]]) -> st
 
     Returns a standalone retrieval query string (no extra commentary).
     """
-    rewrite_model = os.getenv("OPENROUTER_REWRITE_MODEL", "qwen/qwen-turbo")
+    rewrite_model = os.getenv(
+        "OPENROUTER_REWRITE_MODEL",
+        os.getenv("OPENROUTER_MODEL", "qwen/qwen-turbo"),
+    )
     max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
 
     # Keep only {role, content} and only the last N turns.
@@ -568,7 +606,11 @@ def _rewrite_query_with_history(query: str, history: list[dict[str, str]]) -> st
         messages.extend(cleaned)
     messages.append({"role": "user", "content": query})
 
-    rewritten = _openrouter_chat(messages, model=rewrite_model)
+    rewritten = _openrouter_chat(
+        messages,
+        model=rewrite_model,
+        provider_env_key="OPENROUTER_REWRITE_PROVIDER_ONLY",
+    )
     rewritten = (rewritten or "").strip().strip('"').strip()
     return rewritten or query
 
@@ -851,7 +893,11 @@ def chat(req: ChatRequest) -> ChatResponse:
         answer_messages.append({"role": "user", "content": query})
         logger.info("[%s] llm call model=%s messages=%d", rid, llm_model, len(answer_messages))
         t_llm = time.perf_counter()
-        answer = _openrouter_chat(answer_messages, model=llm_model)
+        answer = _openrouter_chat(
+            answer_messages,
+            model=llm_model,
+            provider_env_key="OPENROUTER_ANSWER_PROVIDER_ONLY",
+        )
         logger.info(
             "[%s] llm done latency_ms=%.1f answer_len=%d total_ms=%.1f",
             rid, (time.perf_counter() - t_llm) * 1000.0, len(answer or ""),
@@ -976,7 +1022,7 @@ def chat_stream(req: ChatRequest):
                 intent, language, intent_confidence = "unknown", "unknown", 0.0
             logger.info("[%s] intent=%s lang=%s conf=%.2f", rid, intent, language, intent_confidence)
 
-            yield _sse({"type": "status", "message": "Rewriting your queryâ€¦"})
+            yield _sse({"type": "status", "message": "Rewriting your query..."})
             search_query = _rewrite_query_with_history(query, history)
             logger.info("[%s] rewritten=%r", rid, search_query)
             yield _sse({"type": "rewrite", "rewritten_query": search_query})
@@ -1005,7 +1051,7 @@ def chat_stream(req: ChatRequest):
                 except Exception:
                     pass
 
-            yield _sse({"type": "status", "message": "Searching source documentsâ€¦"})
+            yield _sse({"type": "status", "message": "Searching source documents..."})
             client = _get_qdrant_client()
             embedder = _get_embedder()
             t0 = time.perf_counter()
@@ -1018,7 +1064,7 @@ def chat_stream(req: ChatRequest):
             )
             kw = bm25_search(bm25, bm25_chunks, enriched_query, top_k=top_k)
 
-            yield _sse({"type": "status", "message": "Fusing resultsâ€¦"})
+            yield _sse({"type": "status", "message": "Fusing results..."})
             fused = reciprocal_rank_fusion(vec, kw, top_n=top_n)
 
             skus_in_query = _extract_skus_from_query(enriched_query)
@@ -1083,7 +1129,7 @@ def chat_stream(req: ChatRequest):
             context_str = build_context_str(retrieved_chunks)
             system_prompt = build_system_prompt(context_str)
 
-            yield _sse({"type": "status", "message": "Generating answerâ€¦"})
+            yield _sse({"type": "status", "message": "Generating answer..."})
             llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
             max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
             cleaned_history: list[dict[str, str]] = []
@@ -1103,12 +1149,17 @@ def chat_stream(req: ChatRequest):
                 return
 
             full = ""
-            provider_only = os.getenv("OPENROUTER_PROVIDER_ONLY", "").strip()
             provider = None
-            if provider_only:
-                only = [p.strip() for p in provider_only.split(",") if p.strip()]
-                if only:
-                    provider = {"only": only}
+            if "OPENROUTER_ANSWER_PROVIDER_ONLY" in os.environ:
+                raw = (os.getenv("OPENROUTER_ANSWER_PROVIDER_ONLY") or "").strip()
+                if raw:
+                    only = [p.strip() for p in raw.split(",") if p.strip()]
+                    provider = {"only": only} if only else None
+            else:
+                raw = (os.getenv("OPENROUTER_PROVIDER_ONLY") or "").strip()
+                if raw:
+                    only = [p.strip() for p in raw.split(",") if p.strip()]
+                    provider = {"only": only} if only else None
             logger.info("[%s] llm stream model=%s messages=%d", rid, llm_model, len(messages))
             t_llm = time.perf_counter()
             with OpenRouter(

@@ -20,8 +20,13 @@ pip install -r requirements.txt
 ```powershell
 OPENROUTER_API_KEY=your-openrouter-api-key
 OPENROUTER_MODEL=openai/gpt-4o-mini
-# Optional (recommended for BYOK): force routing to OpenAI
-OPENROUTER_PROVIDER_ONLY=openai
+# Optional (recommended for BYOK): force ONLY the answer call to OpenAI
+OPENROUTER_ANSWER_PROVIDER_ONLY=openai
+
+# Optional: rewrite/intent models (default to OPENROUTER_MODEL if unset)
+# Example: keep answers on OpenAI, but do rewrite/intent on Qwen:
+OPENROUTER_REWRITE_MODEL=qwen/qwen-turbo
+OPENROUTER_INTENT_MODEL=qwen/qwen-turbo
 EMBEDDING_MODEL=intfloat/multilingual-e5-small
 QDRANT_URL=https://your-cluster-url
 QDRANT_API_KEY=your-qdrant-api-key
