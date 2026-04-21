@@ -24,7 +24,6 @@ export const StatCard: React.FC<StatCardProps> = ({ label, value, subValue, tren
         fontSize: '0.65rem', 
         lineHeight: '1.4',
         opacity: 0.8,
-        display: 'block',
         width: '100%',
         overflow: 'hidden',
         textOverflow: 'ellipsis',
