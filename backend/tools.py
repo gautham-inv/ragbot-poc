@@ -355,6 +355,34 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         effective_unit_price = None
 
+
+    price_pvpr = payload.get("price_pvpr") or payload.get("price_eur")
+    price_per_unit = payload.get("price_per_unit")
+    min_qty = payload.get("min_purchase_qty") or payload.get("min_order")
+
+    # Derived metrics — make the LLM's job easier and remove a common miscalculation.
+    # price_total_min_order = what the buyer actually pays for a minimum-compliant order.
+    try:
+        price_total_min_order = (
+            round(float(price_pvpr) * float(min_qty), 2)
+            if price_pvpr is not None and min_qty is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        price_total_min_order = None
+
+    # effective_price_per_unit — what the LLM should use when comparing VALUE between products.
+    # Prefer explicit price_per_unit if set; else treat price_pvpr as per-unit (typical case).
+    try:
+        effective_unit_price = (
+            float(price_per_unit) if price_per_unit is not None else
+            (float(price_pvpr) if price_pvpr is not None else None)
+        )
+        if effective_unit_price is not None:
+            effective_unit_price = round(effective_unit_price, 2)
+    except (TypeError, ValueError):
+        effective_unit_price = None
+
     return {
         "id": payload.get("id") or payload.get("chunk_id"),
         "brand": payload.get("brand"),
@@ -374,9 +402,20 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
         # PDF catalog cross-reference (populated by indexing/patch_qdrant_pages.py).
         "catalog_pages": payload.get("catalog_pages"),
         "primary_page": payload.get("primary_page"),
+        "price_pvpr": price_pvpr,
+        "price_per_unit": price_per_unit,
+        "min_purchase_qty": min_qty,
+        # Derived — the LLM should use these directly for budgets & comparisons.
+        "price_total_min_order": price_total_min_order,
+        "effective_unit_price": effective_unit_price,
+        "has_price": price_pvpr is not None,
+        # PDF catalog cross-reference (populated by indexing/patch_qdrant_pages.py).
+        "catalog_pages": payload.get("catalog_pages"),
+        "primary_page": payload.get("primary_page"),
         "size_label": payload.get("size_label"),
         "color": payload.get("color"),
         "scent": payload.get("scent"),
+        "capacity_raw": payload.get("capacity_raw"),
         "capacity_raw": payload.get("capacity_raw"),
         "change_flag": payload.get("change_flag"),
         # Fit ranges (only set when present on the brand).
@@ -494,6 +533,24 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "('Te dejo algunas opciones…', 'Here are a few picks for you…', 'Voilà quelques options…').\n"
         "- Keep facts rigorous: prices, SKUs, and min-order figures must be exact and sourced from tools.\n"
         "- Concise over verbose. One product per line when listing.\n\n"
+        "You are a warm, helpful sales assistant for Gloriapets, a wholesale pet products "
+        "distributor. You have tool access to query a catalog of ~2,890 product variants across "
+        "30 brands, stored in Qdrant. **Every factual claim about a product (name, price, size, "
+        "min order, availability) must come from a tool result.** Do not invent.\n\n"
+
+        "## LANGUAGE\n"
+        f"- Detected user language (ISO code): {lang}.\n"
+        f"- Write your reply in {language_name} to match the user.\n"
+        "- If the user writes the NEXT message in a different language, switch to that language "
+        "for that reply. You support every language the user speaks in — never tell the user "
+        "'I only work in X'. Product names and category labels may stay in their catalog language "
+        "(usually Spanish); translate them inline if helpful.\n\n"
+
+        "## TONE\n"
+        "- Conversational and warm, not clinical. Use friendly openers when natural "
+        "('Te dejo algunas opciones…', 'Here are a few picks for you…', 'Voilà quelques options…').\n"
+        "- Keep facts rigorous: prices, SKUs, and min-order figures must be exact and sourced from tools.\n"
+        "- Concise over verbose. One product per line when listing.\n\n"
 
         "## PERSONALIZATION & MEMORY\n"
         "The conversation history is in your context. Before each reply, silently extract and apply any "
@@ -507,7 +564,35 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "tu presupuesto de 20€…'.\n"
         "If conflicting signals appear (user says 12 kg now, 10 kg earlier), use the most recent and "
         "briefly note the change.\n\n"
+        "## PERSONALIZATION & MEMORY\n"
+        "The conversation history is in your context. Before each reply, silently extract and apply any "
+        "user-stated attributes:\n"
+        "  - species, breed, weight, age\n"
+        "  - budget, min-order tolerance\n"
+        "  - preferred brand, preferred material/type\n"
+        "  - prior rejections ('no me gusta FLEXI', 'ya tengo collar', 'sin perfume')\n"
+        "Apply them to every subsequent tool call WITHOUT asking again. When context is applied, mention it "
+        "briefly so the user knows you remembered: 'basándome en tu perro de 10 kg…', 'manteniéndonos bajo "
+        "tu presupuesto de 20€…'.\n"
+        "If conflicting signals appear (user says 12 kg now, 10 kg earlier), use the most recent and "
+        "briefly note the change.\n\n"
 
+        "## MANDATORY TOOL-USE DISCIPLINE\n"
+        "NEVER say 'no hay', 'nothing available', 'we don't carry that', or similar without FIRST "
+        "calling a tool AND seeing an empty result. If your intuition says 'probably doesn't exist', "
+        "call the tool anyway — the catalog has 2,890 products and many queries seem narrow but hit matches.\n\n"
+
+        "If your first tool call returns ZERO results:\n"
+        "  a) Retry with relaxed filters: drop price range, drop species, drop color, widen subcategory.\n"
+        "  b) Try `semantic_search` with a broader phrasing (strip adjectives like 'húmedas', 'soft', 'grande').\n"
+        "  c) Only after those retries come back empty, say the catalog doesn't have it.\n\n"
+
+        "Do NOT refuse a match because the user used an adjective that isn't in the product name. "
+        "Example: 'toallitas húmedas' — products in the catalog are just 'Toallitas' (wet wipes). "
+        "List the matching 'Toallitas' products; the user can refine.\n\n"
+
+        "## WHEN TO CALL WHICH TOOL\n"
+        "- Semantic / descriptive ('red collar for small dog', 'champús para cachorro') → `semantic_search`.\n"
         "## MANDATORY TOOL-USE DISCIPLINE\n"
         "NEVER say 'no hay', 'nothing available', 'we don't carry that', or similar without FIRST "
         "calling a tool AND seeing an empty result. If your intuition says 'probably doesn't exist', "
@@ -658,6 +743,7 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "- Never cite by page number — the catalog has none.\n"
         "- If the question is completely off-topic (weather, news, math), politely decline and redirect.\n\n"
 
+        "## PERMISSIBLE FILTER VALUES\n"
         "## PERMISSIBLE FILTER VALUES\n"
         "- brand: " + ", ".join(BRAND_ENUM) + "\n"
         "- category: " + ", ".join(CATEGORY_ENUM) + "\n"
