@@ -563,7 +563,10 @@ export default function Home() {
                             <div className="space-y-2 pt-1">
                               {m.sources.slice(0, 8).map((s, sIdx) => {
                                 const meta = (s.metadata ?? {}) as Record<string, unknown>;
-                                const physical = meta.physical_page_number ?? meta.page_number;
+                                const physical =
+                                  meta.physical_page_number ??
+                                  meta.primary_page ??
+                                  meta.page_number;
                                 const sku = meta.sku;
                                 const brand = meta.brand;
                                 const category = meta.category;

@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 342,
+  "text": "Alimentación\nNatural Snackys Pescado\n\n![img-210.jpeg](img-210.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:29.898742+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf\\pages\\page-43",
+    "tables_inlined": 0
+  }
+}

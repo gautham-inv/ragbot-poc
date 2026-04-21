@@ -1,0 +1,12 @@
+{
+  "source_file": "output-1",
+  "page_number": 6,
+  "text": "KVP\n\nKong Veterinary Products, KVP tiene la mayor selección del mundo de collares de recuperación, y productos eficaces para el cuidado del paciente.\n\nKong Veterinary Products, KVP dispose de la plus grande sélection au monde de colliers de récupération et de produits efficaces pour les soins aux patients.\n\nBetsy Collar\n\n|  Referencia | Ud. mín. de compra | Cuello | Profundidad | PVPR/MSRP  |\n| --- | --- | --- | --- | --- |\n|  KVP0001 | 3 | 22 - 26 cm | 7,5 cm | 2,98 €  |\n|  KVP0002 | 3 | 23 - 27 cm | 10 cm | 3,46 €  |\n|  KVP0003 | 3 | 27- 31 cm | 12,5 cm | 3,70 €  |\n|  KVP0004 | 3 | 33 - 40 cm | 15 cm | 5,04 €  |\n|  KVP0005 | 3 | 33 - 41 cm | 20 cm | 6,22 €  |\n|  KVP0006 | 3 | 39 - 48 cm | 25,5 cm | 7,30 €  |\n|  KVP0007 | 2 | 45 - 56 cm | 30,5 cm | 9,76 €  |\n|  KVP0008 | 1 | 63 - 78 cm | 40 cm | 17,38 €  |\n\n![img-10.jpeg](img-10.jpeg)\n\n![img-11.jpeg](img-11.jpeg)\n\nCheck\n\n|  Referencia | Ud. mín. de compra | Cuello | Profundidad | PVPR/MSRP  |\n| --- | --- | --- | --- | --- |\n|  KVP0020 | 3 | 22 - 27 cm | 7,5 cm | 6,20 €  |\n|  KVP0021 | 3 | 22 - 27 cm | 10 cm | 6,34 €  |\n|  KVP0022 | 3 | 23 - 32 cm | 15 cm | 6,76 €  |\n|  KVP0023 | 2 | 30,5 - 40,5 cm | 20 cm | 8,90 €  |\n|  KVP0024 | 2 | 34 - 43 cm | 20 cm | 9,58 €  |\n|  KVP0025 | 2 | 38 - 50 cm | 25 cm | 11,56 €  |\n|  KVP0026 | 1 | 43 - 57 cm | 30 cm | 15,80 €  |\n|  KVP0027 | 1 | 61 - 79 cm | 40 cm | 34,82 €  |\n\n![img-12.jpeg](img-12.jpeg)\n\n![img-13.jpeg](img-13.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-06T16:05:58.809867+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\mistra-ocr-output\\output-1",
+    "page_dir": "data\\raw\\mistra-ocr-output\\output-1\\pages\\page-6",
+    "tables_inlined": 2
+  }
+}

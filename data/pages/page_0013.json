@@ -1,0 +1,12 @@
+{
+  "source_file": "output-1",
+  "page_number": 13,
+  "text": "13\n\n# Vectra 3D\n\nVECTRA 3D protege frente a los principales parásitos que afectan a las mascotas.\n\nCon tan solo una picadura, las pulgas, garrapatas, mosquitos y flebotomos pueden transmitir enfermedades.\n\n![img-61.jpeg](img-61.jpeg)\n\n![img-62.jpeg](img-62.jpeg)\n\n# FELIWAY\n\n![img-63.jpeg](img-63.jpeg)\n\nDurante más de 25 años, FELIWAY ha estado trabajando para ampliar su experiencia en comportamiento felino de la mano de reconocidos expertos.\n\n![img-64.jpeg](img-64.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-06T16:05:55.880126+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\mistra-ocr-output\\output-1",
+    "page_dir": "data\\raw\\mistra-ocr-output\\output-1\\pages\\page-13",
+    "tables_inlined": 0
+  }
+}

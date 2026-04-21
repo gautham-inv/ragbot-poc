@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 258,
+  "text": "Hoy queremos presentar con orgullo a quienes realmente hacen posible todo lo que hacemos: nuestro equipo. Cada día llevamos el compromiso, la dedicación y el cariño en el bienestar de perros, gatos y sus familias. Compartimos confianza. Y eso es gracias a ellos.\n\nAujourd'hui, nous souhaitons présenter avec fierté ceux qui rendent réellement possible tout ce que nous accomplissons : notre équipe. Chaque jour, nous nous engageons, nous sommes dévoués et passionnés au service du bien-être des chiens, des chats et de leurs familles. Nous partageons leur confiance. Et cela, c'est grâce à eux.\n\n![img-5.jpeg](img-5.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:28.738029+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-9",
+    "tables_inlined": 0
+  }
+}

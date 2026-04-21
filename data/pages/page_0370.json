@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 370,
+  "text": "# Exploración\n\nExploration\n\n![img-98.jpeg](img-98.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:30.972999+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T140841Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T140841Z\\200-396.pdf\\pages\\page-21",
+    "tables_inlined": 0
+  }
+}

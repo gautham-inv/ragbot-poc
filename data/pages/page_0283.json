@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 283,
+  "text": "34\n\n![img-126.jpeg](img-126.jpeg)\n\nSi a tu perrito le encanta correr, perseguir cosas en movimiento y traer la pelota una y otra vez...\n\n# la colección Play&amp;Run es perfecta para vosotros.\n\nEstá pensada para esos momentos de mucha energía, en los que jugar y hacer ejercicio juntos se convierte en una experiencia divertida y saludable.\n\nEn Play&amp;Run encontrarás juguetes de lanzar y recuperar para cualquier lugar y momento del día: pelotas de distintos materiales, con sonido, con luz o luminiscentes, sticks, frisbees, lanzadores con cuerda y muchos otros.\n\nTodo está diseñado para que juguéis juntos de manera activa, reforcéis vuestro vínculo y cuidéis del bienestar físico y emocional de tu mejor amigo.\n\nSi votre petit chien adore courir, poursuivre des objets en mouvement et rapporter la balle encore et encore,\n\n# la collection Play&amp;Run est parfaite pour vous.\n\nElle est conçue pour ces moments pleins d'énergie, où jouer et faire de l'exercice ensemble devient une expérience amusante et saine.\n\nDans Play&amp;Run, vous trouverez des jouets à lancer et à rapporter pour tous les lieux et tous les moments de la journée : des balles de différents matériaux, avec son, avec lumière ou phosphorescentes, des sticks, des frisbees, des lanceurs avec corde et bien d'autres encore.\n\nTout est pensé pour que vous jouiez ensemble de manière active, que vous renforciez votre lien et que vous preniez soin du bien-être physique et émotionnel de votre meilleur ami.",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:28.384653+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-34",
+    "tables_inlined": 0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 260,
+  "text": "11\n\n# Juego\nJeu\n\n![img-7.jpeg](img-7.jpeg)\n\n# Let's play!\n\nPara nuestros peludos el juego no es solo una manera de estar entretenido, es una necesidad con la que aprenden a socializar y a relacionarse con su entorno.\n\nLes ayuda a mantener una buena salud física y emocional, pero sobre todo mejora y refuerza nuestro vínculo con ellos. Porque el juego no solo es diversión, es cuidado y cariño.\n\nPour nos compagnons à quatre pattes, le jeu n'est pas seulement une façon de se divertir, c'est un besoin grâce auquel ils apprennent à socialiser et à interagir avec leur environnement.\n\nIl les aide à maintenir une bonne santé physique et émotionnelle, mais surtout, il améliore et renforce le lien qui nous unit à eux. Car le jeu n'est pas seulement un divertissement, c'est aussi du soin et de l'affection.",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:27.919691+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-11",
+    "tables_inlined": 0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 259,
+  "text": "10\n![img-6.jpeg](img-6.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:27.905916+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-10",
+    "tables_inlined": 0
+  }
+}

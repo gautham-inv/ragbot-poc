@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 344,
+  "text": "Alimentación\nNatural Snackys Pescado\n\n# Cabeza de pulpo\n\nTête de poulpe\n\nOctopus head\nCabeça de polvo\nTesta di polpo\n\n|  REF. | Peso Poids | Unidad min. Qté min. | PVPR PVC  |\n| --- | --- | --- | --- |\n|  AL00976 | 70gr | 4 | 7 €  |\n\nAL00976\n\n8432288117880\n\n![img-217.jpeg](img-217.jpeg)\n\n# Choco deshidratado\n\nSeiche déshydratée\n\nDried Cuttlefish\nChoco desidratado\nSeppie disidratate\n\n|  REF. | Peso Poids | Unidad min. Qté min. | PVPR PVC  |\n| --- | --- | --- | --- |\n|  AL00986 | 60gr | 4 | 5,5 €  |\n\nAL00986\n\n8432288118061\n\n![img-218.jpeg](img-218.jpeg)\n\n![img-219.jpeg](img-219.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:29.919235+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf\\pages\\page-45",
+    "tables_inlined": 2
+  }
+}

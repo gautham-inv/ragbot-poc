@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 346,
+  "text": "# Bienestar\n\nBien-être\n\n![img-221.jpeg](img-221.jpeg)\n\n![img-222.jpeg](img-222.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:29.931527+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf\\pages\\page-47",
+    "tables_inlined": 0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "source_file": "45-100.pdf",
+  "page_number": 45,
+  "text": "gl*ria\n\nSUPPLE PETS\n\nFORMACIONES\n\n[QR Code Image]\n\nInscríbete\n\n# Hazte experto en alimentación complementaria\n\nSUPLEMENTOS PARA PERROS Y GATOS\n\n1. Mejora la relación con tu cliente\nProductos de gran interés para tus clientes ya que mejoran la vida de sus mascotas.\n\n2. Impulsa tu negocio\nCon un producto ideal. Gran calidad y un gran márgen de venta.\n\n![img-0.jpeg](img-0.jpeg)\n\n¡Pregunta a tu comercial!",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:21.056739+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T133851Z\\45-100.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T133851Z\\45-100.pdf\\pages\\page-1",
+    "tables_inlined": 0
+  }
+}

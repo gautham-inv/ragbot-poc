@@ -45,6 +45,7 @@ Run:
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import pickle
@@ -134,6 +135,18 @@ def _to_number(v: Any) -> float | int | None:
         return None
 
 
+@functools.lru_cache(maxsize=1)
+def _load_sku_page_map() -> dict[str, dict]:
+    """Load {sku -> {pages, primary_page}} from data/index/sku_pages.json if present."""
+    path = Path(os.getenv("SKU_PAGES_JSON", "data/index/sku_pages.json"))
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """Return (chunk_id, text_to_embed, payload)."""
     p = rec.get("payload") or {}
@@ -143,6 +156,11 @@ def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     brand = p.get("brand") or ""
     sku = p.get("sku") or ""
     chunk_id = f"excel:{brand}:{sku}"
+
+    # PDF catalog cross-reference (if indexing/build_sku_page_map.py has been run).
+    page_entry = _load_sku_page_map().get(str(sku).strip().upper()) or {}
+    catalog_pages = page_entry.get("pages")
+    primary_page = page_entry.get("primary_page")
 
     text = (rec.get("soft_text") or "").strip()
     if not text:
@@ -219,6 +237,10 @@ def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
         "fecha": p.get("fecha"),
         "source_tab": p.get("source_tab"),
         "source_row": _to_number(p.get("source_row")),
+
+        # ------- PDF catalog cross-reference -------
+        "catalog_pages": catalog_pages,
+        "primary_page": primary_page,
 
         # ------- multilingual display names -------
         "name_es": names.get("es"),

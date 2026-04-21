@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 314,
+  "text": "# Alimentación\n\nAlimentation\n\n![img-53.jpeg](img-53.jpeg)\n\n![img-54.jpeg](img-54.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:29.546614+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T140701Z\\200-396.pdf\\pages\\page-15",
+    "tables_inlined": 0
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "source_file": "output-1",
+  "page_number": 10,
+  "text": "10\n\nProductos fabricados en UK\nProduits fabriqués au Royaume-Uni\n\nPet Head y su gama de productos de aseo frutales están elaborados con fórmulas y fragancias exclusivas y deliciosas, con unos emblemáticos envases que están repletos de ingredientes naturales y libres de crueldad animal, con pH equilibrado, libres de parabenos, tensioactivos y colorantes agresivos. Todos los productos están fabricados según los estándares de calidad humana.\n\nPet Head et sa gamme de produits de toilettage fruités sont fabriqués à partir de formules et de parfums uniques et délicieux, avec un emballage emblématique contenant des ingrédients naturels, sans cruauté, au pH équilibré, sans parabènes, sans agents tensioactifs et sans colorants agressifs. Tous les produits sont fabriqués selon des normes de qualité humaines.\n\n|  Sensitive Soul champú\nShampooing Sensitive Soul\nChampô Sensitive Soul\nShampoo Sensitive Soul\nDelicate skin shampoo  |   |   |\n| --- | --- | --- |\n|  Referencia | Ud. min. de compra | Cantidad  |\n|  COA90113A | 1 | 300 ml  |\n|  Sensitive Soul acondicionador\nConditionneur Sensitive Soul\nCondicionador Sensitive Soul\nCondicionatore Sensitive Soul\nDelicate skin conditioner  |   |   |\n| --- | --- | --- |\n|  Referencia | Ud. min. de compra | Cantidad  |\n|  COA90122A | 1 | 250 ml  |\n|  Sensitive Soul spray\nVaporisateur Sensitive Soul\nSpray Sensitive Soul\nSpray Sensitive Soul\nDelicate Skin spray  |   |   |\n| --- | --- | --- |\n|  Referencia | Ud. min. de compra | Cantidad  |\n|  COA90133A | 1 | 300 ml  |\n|  Referencia | Ud. min. de compra | Cantidad  |\n| --- | --- | --- |\n|  COA90132A | 1 | 300 ml  |\n\n![img-36.jpeg](img-36.jpeg)\n\n![img-37.jpeg](img-37.jpeg)\n\n![img-38.jpeg](img-38.jpeg)\n\n![img-39.jpeg](img-39.jpeg)\n\n![img-40.jpeg](img-40.jpeg)\n\n![img-41.jpeg](img-41.jpeg)\n\n![img-42.jpeg](img-42.jpeg)",
+  "meta": {
+    "ingested_at": "2026-04-06T16:05:55.531294+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\mistra-ocr-output\\output-1",
+    "page_dir": "data\\raw\\mistra-ocr-output\\output-1\\pages\\page-10",
+    "tables_inlined": 4
+  }
+}

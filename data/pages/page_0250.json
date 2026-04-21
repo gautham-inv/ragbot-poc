@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 250,
+  "text": "CATÁLOGO 2026\n\n# Cada animal es único y necesita cosas únicas.\n\nChaque animal est unique et mérite des solutions adaptées à ses besoins spécifiques.\n\n![img-0.jpeg](img-0.jpeg)\n\ngloria",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:27.895932+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-1",
+    "tables_inlined": 0
+  }
+}

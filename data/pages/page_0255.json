@@ -1,0 +1,12 @@
+{
+  "source_file": "200-396.pdf",
+  "page_number": 255,
+  "text": "6\n\n# Nuestras cuatro patas\n\nEn Gloria, todo lo que hacemos se apoya en cuatro valores que no son decorativos: son los principios reales sobre los que diseñamos cada producto, formamos a cada persona y construimos cada decisión.\n\nCuatro patas con un solo propósito: cuidarte para que tú cuides mejor. Creemos que cuidar bien es entender, respetar y acompañar. Y cuando encuentras la tranquilidad, ellos son más felices.\n\n## Pasión / Passion\n\n☐ Nos mueve la alegría y el amor por los animales.\n☐ Somos dueños, como tú, y eso se nota en cómo trabajamos.\n☐ Ponemos pasión en cada producto, desde su diseño hasta que llega a tienda.\n☐ Buscamos siempre lo mejor para tu mejor amigo.\n☐ Queremos recompensar su amor incondicional, con calidad y cariño.\n\n☐ La joie et l'amour pour les animaux sont notre moteur.\n☐ Nous sommes propriétaires, comme vous, et cela se reflète dans notre manière de travailler.\n☐ Nous mettons de la passion dans chaque produit, depuis sa conception jusqu'à son arrivée en magasin.\n☐ Nous recherchons toujours le meilleur pour votre meilleur ami.\n☐ Nous voulons récompenser leur amour inconditionnel avec qualité et affection.\n\n## Conocimiento / Connaissance\n\n☐ Conocemos a fondo a perros y gatos: sus necesidades, instintos y preferencias.\n☐ Aprendemos de expertos y compartimos ese saber con nuestro equipo.\n☐ Capacitamos puntos de venta para ofrecer el mejor asesoramiento.\n☐ Solo lanzamos productos seguros, útiles y saludables.\n☐ Sabemos lo que necesitan porque los escuchamos.\n\n☐ Nous connaissons en profondeur les chiens et les chats : leurs besoins, instincts et préférences.\n☐ Nous apprenons auprès d'experts et transmettons ce savoir à notre équipe.\n☐ Nous formons les points de vente pour offrir les meilleurs conseils.\n☐ Nous ne lançons que des produits sûrs, utiles et sains.\n☐ Nous savons ce dont ils ont besoin parce que nous les écoutons.",
+  "meta": {
+    "ingested_at": "2026-04-07T08:59:28.721452+00:00",
+    "method": "mistral_markdown_pages",
+    "input_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf",
+    "page_dir": "data\\raw\\ocr-playground-download-20260407T135413Z\\200-396.pdf\\pages\\page-6",
+    "tables_inlined": 0
+  }
+}
