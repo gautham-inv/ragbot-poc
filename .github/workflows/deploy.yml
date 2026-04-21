@@ -15,6 +15,7 @@ env:
   DEPLOY_USER: gautham
   DEPLOY_PATH: /home/gautham/ragbot-poc
   API_BASE_URL: https://gloriapets-chatbot.innovin.win
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -29,11 +30,17 @@ jobs:
           ssh-keyscan -H ${DEPLOY_HOST} >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Deploy (git pull)
+      - name: Deploy (sync repo)
         run: |
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && git pull origin main"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "
+            cd ${DEPLOY_PATH} &&
+            git fetch origin &&
+            git reset --hard origin/main
+          "
 
       - name: Deploy with Docker Compose
         run: |
-          # Build and launch all containers defined in the production config
-          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "cd ${DEPLOY_PATH} && docker compose -f docker-compose.prod.yaml up -d --build"
+          ssh ${DEPLOY_USER}@${DEPLOY_HOST} "
+            cd ${DEPLOY_PATH} &&
+            docker compose -f docker-compose.prod.yaml up -d --build
+          "
