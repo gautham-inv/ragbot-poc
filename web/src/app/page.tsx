@@ -182,8 +182,92 @@ export default function Home() {
     try {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+      async function consumeSse(res: Response) {
+        if (!res.ok || !res.body) return false;
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (requestIdRef.current !== reqId) break;
+
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+          const parsed = parseSseEvents(buffer);
+          buffer = parsed.rest;
+
+          for (const rawEvent of parsed.events) {
+            const data = getSseData(rawEvent);
+            if (!data) continue;
+
+            let evt: StreamEvent | null = null;
+            try {
+              evt = JSON.parse(data) as StreamEvent;
+            } catch {
+              continue;
+            }
+            if (!evt) continue;
+
+            if (evt.type === "status") {
+              setLoadingStatus(evt.message);
+              continue;
+            }
+
+            if (evt.type === "rewrite") {
+              updateAssistantMessage(assistantId, (m) => ({ ...m, rewritten_query: evt.rewritten_query }));
+              continue;
+            }
+
+            if (evt.type === "enrich") {
+              updateAssistantMessage(assistantId, (m) => ({ ...m, enriched_query: evt.enriched_query }));
+              continue;
+            }
+
+            if (evt.type === "token") {
+              setStreaming(true);
+              updateAssistantMessage(assistantId, (m) => ({ ...m, content: (m.content || "") + evt.delta }));
+              continue;
+            }
+
+            if (evt.type === "done") {
+              updateAssistantMessage(assistantId, (m) => ({
+                ...m,
+                content: evt.answer ?? m.content,
+                sources: evt.sources ?? m.sources,
+                rewritten_query: evt.rewritten_query ?? m.rewritten_query,
+                enriched_query: evt.enriched_query ?? m.enriched_query
+              }));
+              setLoading(false);
+              setLoadingStatus(null);
+              return true;
+            }
+
+            if (evt.type === "error") {
+              updateAssistantMessage(assistantId, (m) => ({ ...m, content: evt.message || "Error." }));
+              setLoading(false);
+              setLoadingStatus(null);
+              return true;
+            }
+          }
+        }
+
+        return false;
+      }
+
       // Prefer the tool-calling endpoint so aggregate queries (counts, distincts, etc.)
       // are answered deterministically. Semantic queries still work via `semantic_search`.
+      const toolStreamRes = await fetch(`${baseUrl}/api/chat_tools_stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: text,
+          history: historyForBackend
+        })
+      });
+      if (await consumeSse(toolStreamRes)) return;
+
       const toolRes = await fetch(`${baseUrl}/api/chat_tools`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -218,96 +302,27 @@ export default function Home() {
           history: historyForBackend
         })
       });
+      if (await consumeSse(res)) return;
 
-      if (!res.ok || !res.body) {
-        // Final fallback to non-streaming response.
-        const fallback = await fetch(`${baseUrl}/api/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: text, history: historyForBackend })
-        });
-        const data = await fallback.json();
-        const answer = typeof data?.answer === "string" ? data.answer : "No response.";
-        const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
-        updateAssistantMessage(assistantId, (m) => ({
-          ...m,
-          content: answer,
-          sources,
-          rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
-          enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
-        }));
-        setLoading(false);
-        setLoadingStatus(null);
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (requestIdRef.current !== reqId) break;
-
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-        const parsed = parseSseEvents(buffer);
-        buffer = parsed.rest;
-
-        for (const rawEvent of parsed.events) {
-          const data = getSseData(rawEvent);
-          if (!data) continue;
-
-          let evt: StreamEvent | null = null;
-          try {
-            evt = JSON.parse(data) as StreamEvent;
-          } catch {
-            continue;
-          }
-          if (!evt) continue;
-
-          if (evt.type === "status") {
-            setLoadingStatus(evt.message);
-            continue;
-          }
-
-          if (evt.type === "rewrite") {
-            updateAssistantMessage(assistantId, (m) => ({ ...m, rewritten_query: evt.rewritten_query }));
-            continue;
-          }
-
-          if (evt.type === "enrich") {
-            updateAssistantMessage(assistantId, (m) => ({ ...m, enriched_query: evt.enriched_query }));
-            continue;
-          }
-
-          if (evt.type === "token") {
-            setStreaming(true);
-            updateAssistantMessage(assistantId, (m) => ({ ...m, content: (m.content || "") + evt.delta }));
-            continue;
-          }
-
-          if (evt.type === "done") {
-            updateAssistantMessage(assistantId, (m) => ({
-              ...m,
-              content: evt.answer ?? m.content,
-              sources: evt.sources ?? m.sources,
-              rewritten_query: evt.rewritten_query ?? m.rewritten_query,
-              enriched_query: evt.enriched_query ?? m.enriched_query
-            }));
-            setLoading(false);
-            setLoadingStatus(null);
-            return;
-          }
-
-          if (evt.type === "error") {
-            updateAssistantMessage(assistantId, (m) => ({ ...m, content: evt.message || "Error." }));
-            setLoading(false);
-            setLoadingStatus(null);
-            return;
-          }
-        }
-      }
+      // Final fallback to non-streaming response.
+      const fallback = await fetch(`${baseUrl}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: text, history: historyForBackend })
+      });
+      const data = await fallback.json();
+      const answer = typeof data?.answer === "string" ? data.answer : "No response.";
+      const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
+      updateAssistantMessage(assistantId, (m) => ({
+        ...m,
+        content: answer,
+        sources,
+        rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
+        enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
+      }));
+      setLoading(false);
+      setLoadingStatus(null);
+      return;
     } catch {
       updateAssistantMessage(assistantId, (m) => ({ ...m, content: "Error contacting server." }));
     } finally {

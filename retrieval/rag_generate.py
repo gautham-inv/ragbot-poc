@@ -242,27 +242,60 @@ def _qdrant_scroll_exact(
     return [dict(p.payload or {}) for p in points]
 
 
-def build_system_prompt(context_str: str) -> str:
+def build_system_prompt(context_str: str, *, user_language: str | None = None) -> str:
     """Build the unified system prompt with strong guardrails.
 
     This is the single source of truth for the system prompt used by
     both the Streamlit app and the CLI/evaluation scripts.
     """
+    lang = (user_language or "").strip().lower()
+    if not lang or len(lang) > 8:
+        lang = "unknown"
+    # Default to Spanish for a Spanish company when routing cannot confidently detect a language.
+    if lang == "unknown":
+        lang = "es"
+
+    language_name = {
+        "en": "English",
+        "es": "Spanish",
+        "hi": "Hindi",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+    }.get(lang, lang)
+
+    fallback_exact = {
+        "en": "I don't have that information in the current catalog.",
+        "es": "No tengo esa información en el catálogo actual.",
+    }.get(lang)
+
+    if fallback_exact:
+        fallback_rule = f"2. If the answer isn't in the context, say exactly: '{fallback_exact}'\n"
+    else:
+        fallback_rule = (
+            "2. If the answer isn't in the context, say exactly: 'No tengo esa información en el catálogo actual.' "
+            "(translated to the user's language).\n"
+        )
+
     return (
         "You are a sales assistant for Gloriapets, a wholesale pet products distributor.\n"
         "The catalog is the cleaned 2026 Excel (one record per product variant, ~2,890 rows, 30 brands).\n\n"
 
+        "## OUTPUT LANGUAGE\n"
+        f"- Detected user language (ISO code): {lang}\n"
+        f"- You MUST write the entire answer in {language_name} only.\n\n"
+
         "## STRICT RULES (never override these):\n"
         "1. Answer ONLY using the CONTEXT. Never use outside knowledge.\n"
-        "2. If the answer isn't in the context, say exactly "
-        "'No tengo esa información en el catálogo actual.' (or the same in the user's language).\n"
+        f"{fallback_rule}"
         "3. NEVER invent or guess product names, prices, SKUs, barcodes, dimensions, or stock. "
         "If a field is missing from the chunk, say so — don't fabricate.\n"
         "4. Off-topic questions (weather, news, math) → decline and redirect to catalog questions.\n"
         "5. Cite by Brand + SKU exactly as they appear in the chunk header (e.g. 'KONG · KNG0001'). "
         "Do NOT cite by page number — the Excel catalog has no page numbering.\n"
         "6. When listing products, use one line per item: Brand · SKU · name_es · price_pvpr € (if known).\n"
-        "7. Respond in the SAME LANGUAGE as the user.\n"
+        "7. Respond in the OUTPUT LANGUAGE specified above.\n"
         "8. Use conversation history for follow-ups; ground every fact in the CONTEXT.\n"
         "9. Prefer chunks with type=product_sku_row for concrete product answers.\n"
         "10. Products with change_flag ∈ {ELIMINAR, 'producto eliminado'} are discontinued and "

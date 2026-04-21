@@ -32,7 +32,7 @@ from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
-from backend.tools import build_tool_system_prompt, run_tool_loop
+from backend.tools import build_tool_system_prompt, run_tool_loop, run_tool_loop_stream
 
 load_project_env()
 
@@ -877,7 +877,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             logger.info("[%s] fallback reason=%s", rid, fallback_reason)
 
         context_str = build_context_str(retrieved_chunks)
-        system_prompt = build_system_prompt(context_str)
+        system_prompt = build_system_prompt(context_str, user_language=language)
 
         llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
         max_history = int(os.getenv("MAX_HISTORY_MESSAGES", "8"))
@@ -1127,7 +1127,7 @@ def chat_stream(req: ChatRequest):
                 logger.info("[%s] fallback reason=%s", rid, fallback_reason)
 
             context_str = build_context_str(retrieved_chunks)
-            system_prompt = build_system_prompt(context_str)
+            system_prompt = build_system_prompt(context_str, user_language=language)
 
             yield _sse({"type": "status", "message": "Generating answer..."})
             llm_model = os.getenv("OPENROUTER_MODEL", "qwen/qwen-plus")
@@ -1364,7 +1364,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         result = run_tool_loop(
             user_query=query,
             history=req.history,
-            system_prompt=build_tool_system_prompt(),
+            system_prompt=build_tool_system_prompt(language),
             qdrant=client,
             collection=collection,
             embedder=embedder,
@@ -1378,6 +1378,8 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
     except Exception as e:
         error = f"{type(e).__name__}: {e}"
         answer = "No tengo esa información en el catálogo actual."
+        if (language or "").strip().lower() == "en":
+            answer = "I don't have that information in the current catalog."
 
     # Shape sources to match ChatResponse / frontend expectations.
     sources: list[dict[str, Any]] = []
@@ -1444,4 +1446,97 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             pass
 
     return ChatResponse(answer=answer, sources=sources)
+
+
+@app.post("/api/chat_tools_stream")
+def chat_tools_stream(req: ChatRequest):
+    """
+    Streaming (SSE) variant of /api/chat_tools.
+
+    Emits events compatible with the frontend SSE parser:
+      - {type: "status", message: "..."}
+      - {type: "done", answer, sources}
+      - {type: "error", message}
+    """
+    query = (req.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    def _gen():
+        intent = "unknown"
+        language = "unknown"
+        intent_confidence = 0.0
+        tool_trace: list[dict[str, Any]] = []
+
+        try:
+            yield _sse({"type": "status", "message": "Understanding your question..."})
+
+            try:
+                intent, language, intent_confidence = _route_intent_and_language(query)
+            except Exception:
+                pass
+
+            yield _sse({"type": "status", "message": "Loading catalog tools..."})
+
+            bm25_bundle = _get_bm25_bundle()
+            client = _get_qdrant_client()
+            embedder = _get_embedder()
+            collection = os.getenv("QDRANT_COLLECTION", "catalog_es")
+
+            for evt in run_tool_loop_stream(
+                user_query=query,
+                history=req.history,
+                system_prompt=build_tool_system_prompt(language),
+                qdrant=client,
+                collection=collection,
+                embedder=embedder,
+                bm25=bm25_bundle["bm25"],
+                bm25_chunks=bm25_bundle["chunks"],
+            ):
+                et = (evt or {}).get("type")
+                if et == "status":
+                    msg = str(evt.get("message") or "").strip()
+                    if msg:
+                        yield _sse({"type": "status", "message": msg})
+                    continue
+
+                if et == "error":
+                    yield _sse({"type": "error", "message": str(evt.get("message") or "Error.")})
+                    return
+
+                if et == "done_raw":
+                    answer = str(evt.get("answer") or "").strip() or "No response."
+                    tool_trace = list(evt.get("tool_trace") or [])
+                    retrieved_products = list(evt.get("retrieved_products") or [])
+
+                    # Shape sources to match ChatResponse / frontend expectations.
+                    sources: list[dict[str, Any]] = []
+                    seen_ids: set[str] = set()
+                    for p in retrieved_products:
+                        cid = str(p.get("id") or p.get("chunk_id") or "")
+                        if cid and cid in seen_ids:
+                            continue
+                        if cid:
+                            seen_ids.add(cid)
+                        sources.append(
+                            {
+                                "chunk_id": cid,
+                                "text": p.get("text") or "",
+                                "metadata": p,
+                                "score": 1.0,
+                            }
+                        )
+
+                    yield _sse({"type": "done", "answer": answer, "sources": sources})
+                    return
+
+            yield _sse({"type": "error", "message": "Tool loop ended unexpectedly."})
+        except Exception as e:
+            yield _sse({"type": "error", "message": f"{type(e).__name__}: {e}"})
+        finally:
+            # Best-effort trace tagging via existing /api/chat_tools path only.
+            # Keeping this endpoint lightweight on purpose.
+            pass
+
+    return StreamingResponse(_gen(), media_type="text/event-stream")
 

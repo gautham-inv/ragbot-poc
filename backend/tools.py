@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import os
 from functools import lru_cache
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
 from qdrant_client import QdrantClient
@@ -386,12 +386,31 @@ def _rerank_products(
 # --------------------------------------------------------------------------
 # System prompt for the tool-calling LLM
 # --------------------------------------------------------------------------
-def build_tool_system_prompt() -> str:
+def build_tool_system_prompt(user_language: str | None = None) -> str:
+    lang = (user_language or "").strip().lower()
+    if not lang or len(lang) > 8:
+        lang = "unknown"
+    if lang == "unknown":
+        lang = "es"
+    language_name = {
+        "en": "English",
+        "es": "Spanish",
+        "hi": "Hindi",
+        "fr": "French",
+        "de": "German",
+        "it": "Italian",
+        "pt": "Portuguese",
+    }.get(lang, lang)
+
     return (
         "You are a sales assistant for Gloriapets, a wholesale pet products distributor. "
         "You have tool access to query a catalog of ~2,890 product variants across 30 brands, "
         "stored in Qdrant. **Every factual claim must come from a tool call result.** "
         "If a tool returns zero results, say so — do not invent products, SKUs, prices, or attributes.\n\n"
+
+        "## OUTPUT LANGUAGE\n"
+        f"- Detected user language (ISO code): {lang}\n"
+        f"- You MUST write the entire answer in {language_name} only.\n\n"
 
         "## When to call which tool\n"
         "- Semantic / descriptive lookup ('red collar for small dog', 'KONG chew toys', "
@@ -411,7 +430,7 @@ def build_tool_system_prompt() -> str:
         "You may call multiple tools in sequence. Prefer one well-targeted call over many.\n\n"
 
         "## Answering rules\n"
-        "1. Respond in the user's language.\n"
+        "1. Respond in the OUTPUT LANGUAGE specified above.\n"
         "2. Cite products as `Brand · SKU · name_es · €price`. Never cite by page number — the Excel "
         "catalog has no page numbers.\n"
         "3. One product per line when listing.\n"
@@ -967,3 +986,128 @@ def run_tool_loop(
         "model": model,
         "rounds": len(tool_trace),
     }
+
+
+def run_tool_loop_stream(
+    *,
+    user_query: str,
+    history: list[dict[str, str]] | None,
+    system_prompt: str,
+    qdrant: QdrantClient,
+    collection: str,
+    embedder: Any,
+    bm25: Any,
+    bm25_chunks: list[dict[str, Any]],
+    model: str | None = None,
+    max_rounds: int = 4,
+) -> Iterator[dict[str, Any]]:
+    """
+    Streaming-friendly variant of `run_tool_loop`.
+
+    Yields events of shape:
+      - {type: "status", message: str}
+      - {type: "done_raw", answer: str, tool_trace: [...], retrieved_products: [...], model: str, rounds: int}
+      - {type: "error", message: str}
+    """
+    model = model or os.getenv("OPENROUTER_TOOLS_MODEL", os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini"))
+
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
+    for m in (history or [])[-10:]:
+        if m.get("role") in {"user", "assistant"} and m.get("content"):
+            messages.append({"role": m["role"], "content": m["content"]})
+    messages.append({"role": "user", "content": user_query})
+
+    tool_trace: list[dict[str, Any]] = []
+    retrieved_products: list[dict[str, Any]] = []
+    answer = ""
+
+    try:
+        for round_idx in range(max_rounds):
+            yield {"type": "status", "message": f"Planning tool calls (round {round_idx + 1}/{max_rounds})..."}
+            response = _openrouter_with_tools(messages, TOOL_SCHEMAS, model=model)
+            choice = (response.get("choices") or [{}])[0]
+            msg = choice.get("message") or {}
+            finish = choice.get("finish_reason") or ""
+
+            # Always record the assistant message so tool-results can be attached to it.
+            assistant_msg: dict[str, Any] = {"role": "assistant"}
+            if msg.get("content"):
+                assistant_msg["content"] = msg["content"]
+            tool_calls = msg.get("tool_calls") or []
+            if tool_calls:
+                assistant_msg["tool_calls"] = tool_calls
+            messages.append(assistant_msg)
+
+            if not tool_calls:
+                answer = msg.get("content") or ""
+                break
+
+            for tc in tool_calls:
+                name = (tc.get("function") or {}).get("name") or ""
+                yield {"type": "status", "message": f"Running `{name}`..."}
+
+                args_raw = (tc.get("function") or {}).get("arguments") or "{}"
+                try:
+                    args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
+                except json.JSONDecodeError:
+                    args = {}
+
+                result = dispatch_tool(
+                    name,
+                    args,
+                    qdrant=qdrant,
+                    collection=collection,
+                    embedder=embedder,
+                    bm25=bm25,
+                    bm25_chunks=bm25_chunks,
+                )
+
+                tool_trace.append(
+                    {
+                        "round": round_idx,
+                        "name": name,
+                        "arguments": args,
+                        "result_summary": {
+                            "count": result.get("count"),
+                            "distinct_values": result.get("distinct_values"),
+                            "tool": result.get("tool"),
+                            "error": result.get("error"),
+                        },
+                    }
+                )
+
+                # Collect products for the UI "sources" panel.
+                products = (result.get("products") or [])[:8]
+                for p in products:
+                    retrieved_products.append(p)
+
+                count = result.get("count")
+                if isinstance(count, int):
+                    yield {"type": "status", "message": f"`{name}` returned {count} results."}
+                elif products:
+                    yield {"type": "status", "message": f"`{name}` returned {len(products)} items."}
+                elif result.get("error"):
+                    yield {"type": "status", "message": f"`{name}` error: {result.get('error')}"}
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id") or "",
+                        "name": name,
+                        "content": json.dumps(result, ensure_ascii=False, default=str),
+                    }
+                )
+
+            if finish == "stop":
+                break
+
+        yield {
+            "type": "done_raw",
+            "answer": answer,
+            "tool_trace": tool_trace,
+            "retrieved_products": retrieved_products,
+            "model": model,
+            "rounds": len(tool_trace),
+        }
+    except Exception as e:
+        yield {"type": "error", "message": f"{type(e).__name__}: {e}"}
