@@ -53,17 +53,24 @@ html, body {
 }
 
 .splash-card {
-  width: min(860px, 100%);
+  width: min(420px, 100%);
   background: #fff;
   border: 1px solid #e6e8ec;
-  border-radius: 16px;
-  box-shadow: 0 18px 50px rgba(15, 20, 32, 0.10), 0 4px 12px rgba(15, 20, 32, 0.05);
-  padding: 1.25rem;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(15, 20, 32, 0.08), 0 3px 10px rgba(15, 20, 32, 0.04);
+  padding: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
   align-items: center;
   text-align: center;
+  cursor: default;
+}
+
+.splash-card-compact {
+  width: min(360px, 100%);
+  pointer-events: none;
+  user-select: none;
 }
 
 .skeleton {
@@ -87,8 +94,9 @@ html, body {
   100% { transform: translateX(100%); }
 }
 
-.skeleton-title { width: 220px; height: 18px; border-radius: 999px; }
-.skeleton-subtitle { width: 360px; max-width: 90%; height: 12px; border-radius: 999px; }
+.skeleton-icon { width: 44px; height: 44px; border-radius: 999px; }
+.skeleton-title { width: 200px; height: 16px; border-radius: 999px; }
+.skeleton-subtitle { width: 280px; max-width: 90%; height: 12px; border-radius: 999px; }
 
 .skeleton-kpis {
   width: 100%;

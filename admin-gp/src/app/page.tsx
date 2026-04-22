@@ -1049,23 +1049,10 @@ export default function Page() {
 
   const LoadingSkeleton = () => (
     <div className="splash-overlay" role="status" aria-live="polite" aria-label="Loading analytics">
-      <div className="splash-card">
+      <div className="splash-card splash-card-compact">
+        <div className="skeleton skeleton-icon" aria-hidden="true" />
         <div className="skeleton skeleton-title" aria-hidden="true" />
         <div className="skeleton skeleton-subtitle" aria-hidden="true" />
-        <div className="skeleton-kpis" aria-hidden="true">
-          <div className="skeleton skeleton-kpi-card" />
-          <div className="skeleton skeleton-kpi-card" />
-          <div className="skeleton skeleton-kpi-card" />
-          <div className="skeleton skeleton-kpi-card" />
-          <div className="skeleton skeleton-kpi-card" />
-        </div>
-        <div className="skeleton-panels" aria-hidden="true">
-          <div className="skeleton skeleton-panel" />
-          <div className="skeleton skeleton-panel" />
-        </div>
-        <div className="text-sm text-secondary" style={{ marginTop: "0.25rem" }}>
-          Loading your dashboard…
-        </div>
       </div>
     </div>
   );
@@ -1182,7 +1169,8 @@ export default function Page() {
     <div className="min-h-screen">
       {loading && !data && <LoadingSkeleton />}
       {/* Top bar */}
-      <div className="sticky top-0 z-20 bg-[rgba(247,248,250,0.85)] backdrop-blur border-b border-rule px-7 py-3.5 flex items-center gap-4">
+      <div className="sticky top-0 z-20 bg-[rgba(247,248,250,0.85)] backdrop-blur border-b border-rule">
+        <div className="mx-auto w-full max-w-[1600px] px-7 py-3.5 flex items-center gap-4">
         <div className="text-[12.5px] text-ink-3">
           Analytics <span className="px-1.5 text-ink-4">/</span>
           <b className="text-ink-text font-semibold">AI Query Performance</b>
@@ -1309,10 +1297,11 @@ export default function Page() {
           {Icon.logout}
           {loggingOut ? "…" : "Logout"}
         </button>
+        </div>
       </div>
 
       {/* Content */}
-      <div className="px-7 pt-6 pb-12 max-w-[1600px]">
+      <div className="px-7 pt-6 pb-12 max-w-[1600px] mx-auto w-full">
         {error && !data && (
           <div className="mb-4 rounded-md border border-bad/30 bg-bad-bg text-bad px-3.5 py-2.5 text-[12.5px]">
             {error} — no data to display yet. Run some chatbot queries, then refresh.
