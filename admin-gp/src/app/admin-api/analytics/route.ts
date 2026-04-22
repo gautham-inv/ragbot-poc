@@ -42,11 +42,34 @@ export async function GET(request: Request) {
     }
 
     // ---------------- Per-hour buckets ----------------
-    const hourlyVolume: Record<string, { hour: string; product_search: number; barcode_lookup: number; order_status: number; general_qa: number; other: number }> = {};
+    const hourlyVolume: Record<
+      string,
+      {
+        hour: string;
+        product_search: number;
+        product_recommendation: number;
+        price_compare: number;
+        basket_build: number;
+        barcode_lookup: number;
+        order_status: number;
+        general_qa: number;
+        other: number;
+      }
+    > = {};
     const confidenceSequence: Record<string, { hour: string; confidence: number; count: number }> = {};
     for (let i = 0; i < 24; i++) {
       const h = i.toString().padStart(2, "0");
-      hourlyVolume[h] = { hour: h, product_search: 0, barcode_lookup: 0, order_status: 0, general_qa: 0, other: 0 };
+      hourlyVolume[h] = {
+        hour: h,
+        product_search: 0,
+        product_recommendation: 0,
+        price_compare: 0,
+        basket_build: 0,
+        barcode_lookup: 0,
+        order_status: 0,
+        general_qa: 0,
+        other: 0,
+      };
       confidenceSequence[h] = { hour: h, confidence: 0, count: 0 };
     }
 
@@ -68,6 +91,11 @@ export async function GET(request: Request) {
     let lowConfidence = 0; // intent_confidence < 0.6
     let totalConfidence = 0;
     let skuHits = 0;
+    let purchaseIntent = 0;
+    let basketQueries = 0;
+    let basketBudgetSum = 0;
+    let basketBudgetCount = 0;
+    let comparisonQueries = 0;
 
     traces.forEach((trace: any) => {
       let inputData: any = {};
@@ -189,12 +217,22 @@ export async function GET(request: Request) {
       }
 
       // ---- tool_trace (only present on tools path) ----
+      let usedCompareTool = false;
+      let usedBasketTool = false;
+      let budgetEur: number | null = null;
       if (Array.isArray(toolTrace) && toolTrace.length > 0) {
         pathCounts.tools++;
         for (const step of toolTrace) {
           const name = step && typeof step === "object" ? String(step.name || "") : "";
           if (!name) continue;
           toolCounts[name] = (toolCounts[name] || 0) + 1;
+          if (name === "compare_products") usedCompareTool = true;
+          if (name === "build_budget_basket") {
+            usedBasketTool = true;
+            const args = step && typeof step === "object" ? (step as any).arguments : null;
+            const b = args && typeof args === "object" ? (args as any).budget_eur : null;
+            if (typeof b === "number" && Number.isFinite(b) && b > 0) budgetEur = b;
+          }
         }
       } else {
         pathCounts.stream++;
@@ -203,6 +241,22 @@ export async function GET(request: Request) {
       // ---- retrieval health flags ----
       if (outputData.no_result === true) zeroResults++;
       if (outputData.fallback_triggered === true) fallbackTriggered++;
+
+      // ---- business KPIs ----
+      const purchaseIntents = new Set([
+        "product_search",
+        "product_recommendation",
+        "price_compare",
+        "basket_build",
+        "barcode_lookup",
+      ]);
+      if (purchaseIntents.has(intent)) purchaseIntent++;
+      if (intent === "price_compare" || usedCompareTool) comparisonQueries++;
+      if (intent === "basket_build" || usedBasketTool) basketQueries++;
+      if (budgetEur != null) {
+        basketBudgetSum += budgetEur;
+        basketBudgetCount += 1;
+      }
 
       // ---- hourly buckets ----
       const hour = new Date(trace.timestamp).getUTCHours().toString().padStart(2, "0");
@@ -248,13 +302,21 @@ export async function GET(request: Request) {
     return NextResponse.json({
       kpis: {
         total_queries: total,
+        purchase_intent_rate: total > 0 ? Math.round((purchaseIntent / total) * 100) : 0,
+        basket_queries: basketQueries,
+        avg_basket_budget_eur: basketBudgetCount > 0 ? Number((basketBudgetSum / basketBudgetCount).toFixed(2)) : 0,
+        comparison_queries: comparisonQueries,
+        sku_hit_rate: total > 0 ? Math.round((skuHits / total) * 100) : 0,
+        top_brand: sortTopN(brandCounts, 1)[0]?.name || null,
+        top_category: sortTopN(categoryCounts, 1)[0]?.name || null,
+
+        // Keep technical metrics for deeper debugging views/charts.
         p50_latency_sec: Number(p50.toFixed(2)),
         p95_latency_sec: Number(p95.toFixed(2)),
         zero_result_rate: total > 0 ? Math.round((zeroResults / total) * 100) : 0,
         fallback_rate: total > 0 ? Math.round((fallbackTriggered / total) * 100) : 0,
         avg_confidence: total > 0 ? Number((totalConfidence / total).toFixed(2)) : 0,
         low_confidence_rate: total > 0 ? Math.round((lowConfidence / total) * 100) : 0,
-        sku_hit_rate: total > 0 ? Math.round((skuHits / total) * 100) : 0,
       },
       charts: {
         volume: Object.values(hourlyVolume),
@@ -277,6 +339,12 @@ export async function GET(request: Request) {
               ? "#3b82f6"
               : name === "barcode_lookup"
               ? "#10b981"
+              : name === "product_recommendation"
+              ? "#06b6d4"
+              : name === "price_compare"
+              ? "#f97316"
+              : name === "basket_build"
+              ? "#ec4899"
               : name === "order_status"
               ? "#f59e0b"
               : name === "general_qa"

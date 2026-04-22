@@ -2,14 +2,25 @@ export interface QueryTrace {
   id: string;
   query: string;
   answer: string;
-  intent: 'product_search' | 'barcode_lookup' | 'order_status' | 'general_qa' | 'other';
+  intent:
+    | 'product_search'
+    | 'barcode_lookup'
+    | 'product_recommendation'
+    | 'price_compare'
+    | 'basket_build'
+    | 'order_status'
+    | 'general_qa'
+    | 'other';
   intent_confidence: number;
   latency: number;
   timestamp: string;
   skus_in_answer: Record<string, number>;
-  status: 'critical' | 'warning' | 'info' | 'success';
+  status: 'critical' | 'warning' | 'info' | 'success' | 'zero_result';
   rawInput?: any;
   rawOutput?: any;
+  path?: 'stream' | 'tools';
+  tools_used?: string[];
+  latency_known?: boolean;
 }
 
 export const summaryStats = {

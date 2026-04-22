@@ -1,6 +1,28 @@
 import React, { useState } from 'react';
 import { QueryTrace } from '@/lib/mockData';
-import { ChevronLeft, ChevronRight, X, Clock, Database, MessageSquare, User } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, MessageSquare, ShoppingCart, Tag, User } from 'lucide-react';
+
+function formatIntentLabel(intent: string) {
+  return String(intent || "other").replace(/_/g, " ");
+}
+
+function safeNumber(v: unknown, fallback = 0) {
+  return typeof v === "number" && Number.isFinite(v) ? v : fallback;
+}
+
+function safeArray(v: unknown) {
+  return Array.isArray(v) ? v : [];
+}
+
+function countSkus(rawOutput: any) {
+  const skuCounts = rawOutput?.sku_counts_in_answer;
+  if (!skuCounts || typeof skuCounts !== "object") return 0;
+  try {
+    return Object.keys(skuCounts).length;
+  } catch {
+    return 0;
+  }
+}
 
 interface SKU {
   sku: string;
@@ -42,13 +64,16 @@ export const TopSKUsTable: React.FC<{ data: SKU[] }> = ({ data }) => (
 );
 
 const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = ({ query, onClose }) => {
+  const toolsUsed = safeArray((query as any).tools_used);
+  const path = String((query as any).path || "");
+  const skuCount = countSkus(query.rawOutput);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div className="flex items-center gap-2">
             <span className={`badge badge-info uppercase text-xs`}>
-              {query.intent.replace('_', ' ')}
+              {formatIntentLabel(query.intent)}
             </span>
             <h3 className="heading-2" style={{ margin: 0 }}>Query Inspector</h3>
           </div>
@@ -65,7 +90,19 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
                 <div className="flex items-center gap-2 text-xs text-secondary font-bold uppercase">
                   <User size={14} /> User Query
                 </div>
-                <div className="p-4 border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--primary)', fontSize: '0.925rem', lineHeight: 1.5, background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                <div
+                  className="p-4 border"
+                  style={{
+                    borderRadius: '8px',
+                    borderLeft: '4px solid var(--primary)',
+                    fontSize: '0.925rem',
+                    lineHeight: 1.5,
+                    background: 'var(--surface)',
+                    borderColor: 'var(--border)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {query.query}
                 </div>
               </div>
@@ -74,7 +111,19 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
                 <div className="flex items-center gap-2 text-xs text-secondary font-bold uppercase">
                   <MessageSquare size={14} /> Bot Response
                 </div>
-                <div className="p-4 border" style={{ borderRadius: '8px', borderLeft: '4px solid var(--success)', fontSize: '0.925rem', lineHeight: 1.6, background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                <div
+                  className="p-4 border"
+                  style={{
+                    borderRadius: '8px',
+                    borderLeft: '4px solid var(--success)',
+                    fontSize: '0.925rem',
+                    lineHeight: 1.6,
+                    background: 'var(--surface)',
+                    borderColor: 'var(--border)',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}
+                >
                   {query.answer || "No response recorded for this trace."}
                 </div>
               </div>
@@ -84,23 +133,27 @@ const QueryDetailModal: React.FC<{ query: QueryTrace; onClose: () => void }> = (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
               <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1 flex items-center gap-1">
-                  <Clock size={12} /> Latency
+                  <Tag size={12} /> Path
                 </div>
-                <div className="font-bold">{query.latency.toFixed(2)}s</div>
+                <div className="font-bold">{path || "unknown"}</div>
               </div>
               <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1 flex items-center gap-1">
-                  <Database size={12} /> Confidence
+                  <ShoppingCart size={12} /> Tools Used
                 </div>
-                <div className="font-bold">{(query.intent_confidence || 0).toFixed(4)}</div>
+                <div className="font-bold">{toolsUsed.length}</div>
               </div>
               <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
-                <div className="text-secondary text-xs uppercase font-bold mb-1">Timestamp (UTC)</div>
+                <div className="text-secondary text-xs uppercase font-bold mb-1">SKUs Cited</div>
+                <div className="font-bold">{skuCount}</div>
+              </div>
+              <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                <div className="text-secondary text-xs uppercase font-bold mb-1">Timestamp</div>
                 <div className="font-bold">{new Date(query.timestamp).toLocaleString()}</div>
               </div>
               <div className="p-3 border" style={{ borderRadius: '8px', background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="text-secondary text-xs uppercase font-bold mb-1">Trace ID</div>
-                <div className="font-bold text-xs" style={{ fontFamily: 'monospace' }}>{query.id.substring(0, 8)}...</div>
+                <div className="font-bold text-xs" style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{query.id}</div>
               </div>
             </div>
 
@@ -160,23 +213,36 @@ export const RecentQueriesList: React.FC<{ data: QueryTrace[] }> = ({ data }) =>
             currentData.map((trace) => (
               <div 
                 key={trace.id} 
-                className="flex items-center justify-between p-2 hover:bg-surface-hover transition-colors cursor-pointer group" 
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-2 hover:bg-surface-hover transition-colors cursor-pointer group"
                 style={{ borderBottom: '1px solid var(--border)', padding: '0.75rem 0.5rem', borderRadius: '6px' }}
                 onClick={() => setSelectedQuery(trace)}
               >
-                <div className="flex items-center gap-4" style={{ flex: 1, minWidth: 0 }}>
-                  <span className={`badge badge-info uppercase text-xs`} style={{ minWidth: '95px', textAlign: 'center', flexShrink: 0 }}>
-                    {trace.intent.replace('_', ' ')}
+                <div className="flex items-start gap-3" style={{ flex: 1, minWidth: 0 }}>
+                  <span className={`badge badge-info uppercase text-xs`} style={{ minWidth: '72px', textAlign: 'center', flexShrink: 0 }}>
+                    {formatIntentLabel(trace.intent)}
                   </span>
-                  <span className="text-sm font-medium group-hover:text-primary transition-colors" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {trace.query}
-                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      className="text-sm font-medium group-hover:text-primary transition-colors"
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        wordBreak: 'break-word'
+                      }}
+                    >
+                      {trace.query}
+                    </div>
+                    <div className="text-xs text-secondary" style={{ marginTop: '0.25rem' }}>
+                      {new Date(trace.timestamp).toLocaleString()}
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 ml-4" style={{ flexShrink: 0 }}>
-                  <span className="text-xs text-secondary font-bold" title="Confidence Score">{(trace.intent_confidence || 0).toFixed(2)}</span>
-                  <span className={`text-xs font-bold ${trace.latency > 15 ? 'text-critical' : 'text-secondary'}`}>
-                    {trace.latency.toFixed(1)}s
-                  </span>
+                <div className="hidden sm:flex items-center gap-4 ml-4" style={{ flexShrink: 0 }}>
+                  <span className="text-xs text-secondary font-bold" title="Confidence Score">{safeNumber(trace.intent_confidence).toFixed(2)}</span>
+                  <span className="text-xs text-secondary font-bold">{safeNumber((trace as any).tools_used?.length ?? 0)} tools</span>
                 </div>
               </div>
             ))

@@ -1678,6 +1678,9 @@ def run_tool_loop_stream(
 
     Yields events of shape:
       - {type: "status", message: str}
+      - {type: "phase", phase: str, ...}
+      - {type: "tool_start", tool: str}
+      - {type: "tool_end", tool: str, count?: int, total_count?: int, error?: str}
       - {type: "done_raw", answer: str, tool_trace: [...], retrieved_products: [...], model: str, rounds: int}
       - {type: "error", message: str}
     """
@@ -1697,7 +1700,7 @@ def run_tool_loop_stream(
 
     try:
         for round_idx in range(max_rounds):
-            yield {"type": "status", "message": f"Planning tool calls (round {round_idx + 1}/{max_rounds})..."}
+            yield {"type": "phase", "phase": "planning", "round": round_idx + 1, "max_rounds": max_rounds}
             response = _openrouter_with_tools(messages, TOOL_SCHEMAS, model=model)
             choice = (response.get("choices") or [{}])[0]
             msg = choice.get("message") or {}
@@ -1718,7 +1721,8 @@ def run_tool_loop_stream(
 
             for tc in tool_calls:
                 name = (tc.get("function") or {}).get("name") or ""
-                yield {"type": "status", "message": f"Running `{name}`..."}
+                if name:
+                    yield {"type": "tool_start", "tool": name}
 
                 args_raw = (tc.get("function") or {}).get("arguments") or "{}"
                 try:
@@ -1764,15 +1768,15 @@ def run_tool_loop_stream(
                     retrieved_products.append(p)
 
                 count = result.get("count")
+                tool_end: dict[str, Any] = {"type": "tool_end", "tool": name}
                 if isinstance(count, int):
-                    if isinstance(tc_total, int) and tc_total >= 0 and tc_total != count:
-                        yield {"type": "status", "message": f"`{name}` returned {count} items (showing {count} of {tc_total})."}
-                    else:
-                        yield {"type": "status", "message": f"`{name}` returned {count} results."}
-                elif products:
-                    yield {"type": "status", "message": f"`{name}` returned {len(products)} items."}
-                elif result.get("error"):
-                    yield {"type": "status", "message": f"`{name}` error: {result.get('error')}"}
+                    tool_end["count"] = count
+                if isinstance(tc_total, int) and tc_total >= 0:
+                    tool_end["total_count"] = tc_total
+                if result.get("error"):
+                    tool_end["error"] = str(result.get("error"))
+                if name:
+                    yield tool_end
 
                 messages.append(
                     {
@@ -1786,6 +1790,7 @@ def run_tool_loop_stream(
             if finish == "stop":
                 break
 
+        yield {"type": "phase", "phase": "finalizing"}
         yield {
             "type": "done_raw",
             "answer": answer,

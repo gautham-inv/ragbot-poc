@@ -85,6 +85,10 @@ function ThinkingDots() {
 
 type StreamEvent =
   | { type: "status"; message: string }
+  | { type: "intent"; intent: string; language?: string; confidence?: number }
+  | { type: "phase"; phase: string; round?: number; max_rounds?: number }
+  | { type: "tool_start"; tool: string }
+  | { type: "tool_end"; tool: string; count?: number; total_count?: number; error?: string }
   | { type: "rewrite"; rewritten_query: string }
   | { type: "enrich"; enriched_query: string }
   | { type: "token"; delta: string }
@@ -122,6 +126,7 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
+  const [friendlyLoadingText, setFriendlyLoadingText] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [voiceMode, setVoiceMode] = useState<"idle" | "recording" | "processing">("idle");
@@ -134,10 +139,20 @@ export default function Home() {
 
   const requestIdRef = useRef(0);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const loadingRef = useRef(false);
+  const intentRef = useRef<string | null>(null);
+  const phaseRef = useRef<string | null>(null);
+  const toolRef = useRef<string | null>(null);
+  const loadingTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLoadingTextRef = useRef<string | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     return () => {
@@ -161,6 +176,78 @@ export default function Home() {
     setMessages((prev) => prev.map((m) => (m.id === assistantId ? updater(m) : m)));
   }
 
+  type LoadingBucket = "general_search" | "product_recs" | "price_compare" | "basket" | "smart";
+
+  const LOADING_MESSAGES: Record<LoadingBucket, string[]> = {
+    general_search: [
+      "Sniffing out the best options for your pet… 🐾",
+      "Looking for something your pet will love…",
+      "Fetching tail-wag approved picks…"
+    ],
+    product_recs: [
+      "Picking the best treats and toys…",
+      "Checking what other pet parents love…",
+      "Finding top-rated goodies for your furry friend…"
+    ],
+    price_compare: [
+      "Comparing prices so you don’t overpay…",
+      "Finding the best value for your pet…"
+    ],
+    basket: ["Filling your basket with paw-picked goodies…", "Balancing your basket to fit your budget…"],
+    smart: ["Thinking like a pet expert…", "Matching your pet’s needs…"]
+  };
+
+  function bucketFromIntentPhaseTool(intent: string | null, phase: string | null, tool: string | null): LoadingBucket {
+    const t = (tool || "").trim();
+    if (t === "compare_products") return "price_compare";
+    if (t === "build_budget_basket") return "basket";
+
+    const p = (phase || "").trim();
+    if (p === "understanding") return "smart";
+    if (p === "finalizing") return "smart";
+
+    const i = (intent || "").trim();
+    if (i === "price_compare") return "price_compare";
+    if (i === "basket_build") return "basket";
+    if (i === "product_recommendation") return "product_recs";
+    if (i === "general_qa") return "smart";
+    return "general_search";
+  }
+
+  function pickRandomNonRepeating(items: string[], last: string | null) {
+    if (items.length === 0) return null;
+    if (items.length === 1) return items[0]!;
+    const filtered = last ? items.filter((m) => m !== last) : items;
+    const pool = filtered.length > 0 ? filtered : items;
+    return pool[Math.floor(Math.random() * pool.length)]!;
+  }
+
+  function setNextFriendlyLoadingText() {
+    const bucket = bucketFromIntentPhaseTool(intentRef.current, phaseRef.current, toolRef.current);
+    const next = pickRandomNonRepeating(LOADING_MESSAGES[bucket], lastLoadingTextRef.current);
+    if (!next) return;
+    lastLoadingTextRef.current = next;
+    setFriendlyLoadingText(next);
+  }
+
+  function clearLoadingTextTimer() {
+    if (loadingTextTimerRef.current) clearTimeout(loadingTextTimerRef.current);
+    loadingTextTimerRef.current = null;
+  }
+
+  function scheduleLoadingTextRotation(reqId: number) {
+    clearLoadingTextTimer();
+    const tick = () => {
+      if (requestIdRef.current !== reqId) return;
+      if (!loadingRef.current) return;
+      setNextFriendlyLoadingText();
+      const delayMs = 2500 + Math.floor(Math.random() * 1500);
+      loadingTextTimerRef.current = setTimeout(tick, delayMs);
+    };
+    const firstDelayMs = 700 + Math.floor(Math.random() * 600);
+    loadingTextTimerRef.current = setTimeout(tick, firstDelayMs);
+  }
+
   async function sendPrompt(prompt: string) {
     const text = prompt.trim();
     if (!text || loading) return;
@@ -179,6 +266,13 @@ export default function Home() {
     setInput("");
     setLoading(true);
     setLoadingStatus("Thinking...");
+    intentRef.current = null;
+    phaseRef.current = "understanding";
+    toolRef.current = null;
+    lastLoadingTextRef.current = null;
+    setFriendlyLoadingText(null);
+    setNextFriendlyLoadingText();
+    scheduleLoadingTextRotation(reqId);
     setStreaming(false);
 
     try {
@@ -217,6 +311,30 @@ export default function Home() {
               continue;
             }
 
+            if (evt.type === "intent") {
+              intentRef.current = evt.intent || null;
+              setNextFriendlyLoadingText();
+              continue;
+            }
+
+            if (evt.type === "phase") {
+              phaseRef.current = evt.phase || null;
+              setNextFriendlyLoadingText();
+              continue;
+            }
+
+            if (evt.type === "tool_start") {
+              toolRef.current = evt.tool || null;
+              setNextFriendlyLoadingText();
+              continue;
+            }
+
+            if (evt.type === "tool_end") {
+              toolRef.current = evt.tool || null;
+              setNextFriendlyLoadingText();
+              continue;
+            }
+
             if (evt.type === "rewrite") {
               updateAssistantMessage(assistantId, (m) => ({ ...m, rewritten_query: evt.rewritten_query }));
               continue;
@@ -229,6 +347,7 @@ export default function Home() {
 
             if (evt.type === "token") {
               setStreaming(true);
+              clearLoadingTextTimer();
               updateAssistantMessage(assistantId, (m) => ({ ...m, content: (m.content || "") + evt.delta }));
               continue;
             }
@@ -244,6 +363,8 @@ export default function Home() {
               }));
               setLoading(false);
               setLoadingStatus(null);
+              setFriendlyLoadingText(null);
+              clearLoadingTextTimer();
               return true;
             }
 
@@ -251,6 +372,8 @@ export default function Home() {
               updateAssistantMessage(assistantId, (m) => ({ ...m, content: evt.message || "Error." }));
               setLoading(false);
               setLoadingStatus(null);
+              setFriendlyLoadingText(null);
+              clearLoadingTextTimer();
               return true;
             }
           }
@@ -294,6 +417,8 @@ export default function Home() {
         }));
         setLoading(false);
         setLoadingStatus(null);
+        setFriendlyLoadingText(null);
+        clearLoadingTextTimer();
         return;
       }
 
@@ -327,6 +452,8 @@ export default function Home() {
       }));
       setLoading(false);
       setLoadingStatus(null);
+      setFriendlyLoadingText(null);
+      clearLoadingTextTimer();
       return;
     } catch {
       updateAssistantMessage(assistantId, (m) => ({ ...m, content: "Error contacting server." }));
@@ -334,6 +461,8 @@ export default function Home() {
       if (requestIdRef.current === reqId) {
         setLoading(false);
         setLoadingStatus(null);
+        setFriendlyLoadingText(null);
+        clearLoadingTextTimer();
       }
     }
   }
@@ -680,7 +809,7 @@ export default function Home() {
                     <div className="flex items-center gap-3">
                       <img src="/dog.gif" alt="Loading" className="h-7 w-7 flex-none" />
                       <div className="min-w-0 flex-1 truncate text-slate-600">
-                        {loadingStatus ?? "Thinking..."}
+                        {friendlyLoadingText ?? "Thinking..."}
                       </div>
                       <div className="ml-auto">
                         <ThinkingDots />

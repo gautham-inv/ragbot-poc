@@ -174,7 +174,7 @@ export default function Dashboard() {
             className="grid mb-8"
             style={{
               marginBottom: '1.5rem',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
               gap: '1rem'
             }}
           >
@@ -185,25 +185,31 @@ export default function Dashboard() {
               color="#3b82f6"
             />
             <StatCard
-              label="Latency P50 / P95"
-              value={`${(kpis.p50_latency_sec ?? 0).toFixed(1)}s`}
-              subValue={`P95 ${(kpis.p95_latency_sec ?? 0).toFixed(1)}s`}
-              color={(kpis.p95_latency_sec ?? 0) > 15 ? '#ef4444' : '#10b981'}
+              label="Purchase-intent rate"
+              value={`${kpis.purchase_intent_rate ?? 0}%`}
+              subValue={`Top brand ${kpis.top_brand || '-'}`}
+              color="#06b6d4"
             />
             <StatCard
-              label="Zero-result rate"
-              value={`${kpis.zero_result_rate ?? 0}%`}
-              subValue="Queries that returned nothing"
-              color={(kpis.zero_result_rate ?? 0) > 15 ? '#ef4444' : '#10b981'}
+              label="Basket builds"
+              value={kpis.basket_queries ?? 0}
+              subValue={`Avg budget €${Number(kpis.avg_basket_budget_eur ?? 0).toFixed(2)}`}
+              color="#ec4899"
             />
             <StatCard
-              label="Fallback rate"
-              value={`${kpis.fallback_rate ?? 0}%`}
-              subValue="Fallback / retry path triggered"
-              color={(kpis.fallback_rate ?? 0) > 10 ? '#f59e0b' : '#10b981'}
+              label="Comparison requests"
+              value={kpis.comparison_queries ?? 0}
+              subValue={`Top category ${kpis.top_category || '-'}`}
+              color="#f97316"
             />
             <StatCard
-              label="SKU hit rate"
+              label="Catalog coverage"
+              value={`${Math.max(0, 100 - (kpis.zero_result_rate ?? 0))}%`}
+              subValue="Queries with results"
+              color="#10b981"
+            />
+            <StatCard
+              label="SKU coverage"
               value={`${kpis.sku_hit_rate ?? 0}%`}
               subValue="Answers that cited at least one SKU"
               color="#8b5cf6"

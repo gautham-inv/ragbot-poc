@@ -486,6 +486,9 @@ def _langfuse_score_numeric(span: Any, name: str, value: float) -> None:
 _DEFAULT_ALLOWED_INTENTS = [
     "barcode_lookup",
     "product_search",
+    "product_recommendation",
+    "price_compare",
+    "basket_build",
     "order_status",
     "general_qa",
 ]
@@ -1531,12 +1534,21 @@ def chat_tools_stream(req: ChatRequest):
         error: str | None = None
 
         try:
-            yield _sse({"type": "status", "message": "Understanding your question..."})
+            yield _sse({"type": "phase", "phase": "understanding"})
 
             try:
                 intent, language, intent_confidence = _route_intent_and_language(query)
             except Exception:
                 pass
+
+            yield _sse(
+                {
+                    "type": "intent",
+                    "intent": intent,
+                    "language": language,
+                    "confidence": intent_confidence,
+                }
+            )
 
             # Log INPUT to Langfuse as early as possible.
             if span is not None:
@@ -1561,7 +1573,7 @@ def chat_tools_stream(req: ChatRequest):
                         type(e).__name__, e, exc_info=True,
                     )
 
-            yield _sse({"type": "status", "message": "Loading catalog tools..."})
+            yield _sse({"type": "phase", "phase": "loading_catalog"})
 
             bm25_bundle = _get_bm25_bundle()
             client = _get_qdrant_client()
@@ -1579,10 +1591,12 @@ def chat_tools_stream(req: ChatRequest):
                 bm25_chunks=bm25_bundle["chunks"],
             ):
                 et = (evt or {}).get("type")
+                if et in {"phase", "tool_start", "tool_end"}:
+                    yield _sse(evt)
+                    continue
                 if et == "status":
-                    msg = str(evt.get("message") or "").strip()
-                    if msg:
-                        yield _sse({"type": "status", "message": msg})
+                    # Backwards-compatible: tool loop may emit textual status updates.
+                    # Don't surface internal tool call text to the UI.
                     continue
 
                 if et == "error":
@@ -1624,6 +1638,7 @@ def chat_tools_stream(req: ChatRequest):
                             }
                         )
 
+                    yield _sse({"type": "phase", "phase": "finalizing"})
                     yield _sse({
                         "type": "done",
                         "answer": answer,
