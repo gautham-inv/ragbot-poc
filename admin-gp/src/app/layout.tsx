@@ -1,25 +1,22 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
+const jbmono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jbmono" });
 
 export const metadata: Metadata = {
-  title: "Gloria Pets | RAGBot Analytics",
+  title: "AI Query Analytics — Admin",
   description: "Performance metrics and insights for the Gloria Pets catalog assistant.",
-  icons: {
-    icon: "/paw.jpg",
-  },
+  icons: { icon: "/paw.jpg" },
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" className={`${inter.variable} ${jbmono.variable}`}>
+      <body className="font-sans">{children}</body>
     </html>
   );
 }

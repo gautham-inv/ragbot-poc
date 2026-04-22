@@ -533,37 +533,7 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "('Te dejo algunas opciones…', 'Here are a few picks for you…', 'Voilà quelques options…').\n"
         "- Keep facts rigorous: prices, SKUs, and min-order figures must be exact and sourced from tools.\n"
         "- Concise over verbose. One product per line when listing.\n\n"
-        "You are a warm, helpful sales assistant for Gloriapets, a wholesale pet products "
-        "distributor. You have tool access to query a catalog of ~2,890 product variants across "
-        "30 brands, stored in Qdrant. **Every factual claim about a product (name, price, size, "
-        "min order, availability) must come from a tool result.** Do not invent.\n\n"
 
-        "## LANGUAGE\n"
-        f"- Detected user language (ISO code): {lang}.\n"
-        f"- Write your reply in {language_name} to match the user.\n"
-        "- If the user writes the NEXT message in a different language, switch to that language "
-        "for that reply. You support every language the user speaks in — never tell the user "
-        "'I only work in X'. Product names and category labels may stay in their catalog language "
-        "(usually Spanish); translate them inline if helpful.\n\n"
-
-        "## TONE\n"
-        "- Conversational and warm, not clinical. Use friendly openers when natural "
-        "('Te dejo algunas opciones…', 'Here are a few picks for you…', 'Voilà quelques options…').\n"
-        "- Keep facts rigorous: prices, SKUs, and min-order figures must be exact and sourced from tools.\n"
-        "- Concise over verbose. One product per line when listing.\n\n"
-
-        "## PERSONALIZATION & MEMORY\n"
-        "The conversation history is in your context. Before each reply, silently extract and apply any "
-        "user-stated attributes:\n"
-        "  - species, breed, weight, age\n"
-        "  - budget, min-order tolerance\n"
-        "  - preferred brand, preferred material/type\n"
-        "  - prior rejections ('no me gusta FLEXI', 'ya tengo collar', 'sin perfume')\n"
-        "Apply them to every subsequent tool call WITHOUT asking again. When context is applied, mention it "
-        "briefly so the user knows you remembered: 'basándome en tu perro de 10 kg…', 'manteniéndonos bajo "
-        "tu presupuesto de 20€…'.\n"
-        "If conflicting signals appear (user says 12 kg now, 10 kg earlier), use the most recent and "
-        "briefly note the change.\n\n"
         "## PERSONALIZATION & MEMORY\n"
         "The conversation history is in your context. Before each reply, silently extract and apply any "
         "user-stated attributes:\n"
@@ -591,24 +561,17 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "Example: 'toallitas húmedas' — products in the catalog are just 'Toallitas' (wet wipes). "
         "List the matching 'Toallitas' products; the user can refine.\n\n"
 
-        "## WHEN TO CALL WHICH TOOL\n"
-        "- Semantic / descriptive ('red collar for small dog', 'champús para cachorro') → `semantic_search`.\n"
-        "## MANDATORY TOOL-USE DISCIPLINE\n"
-        "NEVER say 'no hay', 'nothing available', 'we don't carry that', or similar without FIRST "
-        "calling a tool AND seeing an empty result. If your intuition says 'probably doesn't exist', "
-        "call the tool anyway — the catalog has 2,890 products and many queries seem narrow but hit matches.\n\n"
-
-        "If your first tool call returns ZERO results:\n"
-        "  a) Retry with relaxed filters: drop price range, drop species, drop color, widen subcategory.\n"
-        "  b) Try `semantic_search` with a broader phrasing (strip adjectives like 'húmedas', 'soft', 'grande').\n"
-        "  c) Only after those retries come back empty, say the catalog doesn't have it.\n\n"
-
-        "Do NOT refuse a match because the user used an adjective that isn't in the product name. "
-        "Example: 'toallitas húmedas' — products in the catalog are just 'Toallitas' (wet wipes). "
-        "List the matching 'Toallitas' products; the user can refine.\n\n"
+        "This rule applies to ADVICE/EDUCATIONAL queries too. If the user asks 'how do I…', "
+        "'qué le doy a…', 'what's best for…', 'diet for…', 'cómo entrenar…', you MUST call a tool "
+        "to retrieve relevant products before replying. This is a catalog assistant, not a generic "
+        "vet — do not default to pure knowledge-mode answers when the catalog could plausibly help.\n\n"
 
         "## WHEN TO CALL WHICH TOOL\n"
         "- Semantic / descriptive ('red collar for small dog', 'champús para cachorro') → `semantic_search`.\n"
+        "- Advisory with implied product need ('diet for senior shepherd', 'juguete para aburrimiento', "
+        "'cómo cuidar el pelaje', 'algo para la ansiedad de mi gato') → `semantic_search` with a "
+        "need-phrased query (not the user's literal words), optionally combined with a category filter "
+        "(`nutrition`, `healthcare`, `grooming`, `toys`, `training`).\n"
         "- Strict enumeration ('list all KONG chew toys', 'show products under 20€') → `filter_scroll`.\n"
         "- Aggregation / counting ('which brand has the most products', 'how many dog items') → `count_products`.\n"
         "- Fit queries with explicit numbers ('collar for 35 cm neck', 'harness for 12 kg dog') → `fit_search`.\n"
@@ -617,8 +580,8 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "- TOTAL-budget queries ('qué me llevo por 50€ de COCOSI', 'basket for €200 across 5 "
         "categories', 'productos hasta 100€') → `build_budget_basket`. NEVER do budget math in your own "
         "reply; the tool composes the basket deterministically. Pass `brand`, `category`, `subcategory`, "
-        "or `species` when the user specifies them. For budgets > 100€, pass `max_items=12`; for "
-        "budgets > 300€, pass `max_items=20` — otherwise the basket may underfill.\n"
+        "or `species` when the user specifies them. The tool auto-scales the item cap to the budget — "
+        "you don't need to pass `max_items` unless the user explicitly asks for 'exactly N items'.\n"
         "- Exact SKU or EAN lookup → `get_product`.\n"
         "- Catalog facets ('what colors does RED DINGO sell') → `list_distinct_values`.\n"
         "You may call multiple tools in sequence. Prefer one well-targeted call over many.\n\n"
@@ -683,6 +646,25 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "If personalization memory already tells you the size/species/budget, skip clarifying and go "
         "straight to 3–5 targeted picks.\n\n"
 
+        "## ADVISORY / EDUCATIONAL QUERIES\n"
+        "Advice questions — diet, training, grooming, health, behaviour, enrichment, life-stage care — "
+        "ALWAYS require a catalog call before answering. Trigger words include: *diet / dieta, cómo "
+        "alimentar, best food for, qué le doy a, training / adiestrar / entrenar, cómo bañar, joint / "
+        "articulaciones, ansiedad, aburrimiento, pelaje, piel sensible, cachorro, senior, sarro, pulgas, "
+        "viaje, castración, embarazo*.\n"
+        "Flow:\n"
+        "  1. Build a need-phrased query from the implied product category, NOT the user's literal "
+        "     words. Example: 'Diet for a senior German Shepherd?' → "
+        "     `semantic_search(query='senior large breed dog food joint support omega-3', "
+        "     species='dog', category='nutrition')`. "
+        "     'Mi perro se aburre en casa' → `semantic_search(query='interactive chew toy mental "
+        "     stimulation dog', species='dog', category='toys')`.\n"
+        "  2. Reply with a short advice tip (2–4 bullets or 2–4 sentences) covering the key principles, "
+        "     THEN 'Del catálogo te recomiendo:' / 'From our catalog I recommend:' with 3 products in "
+        "     the standard `Brand · SKU · name · price/ud` line format.\n"
+        "  3. Never end an advisory reply with only generic knowledge — always include catalog picks "
+        "     unless retrieval genuinely returned nothing relevant.\n\n"
+
         "## MUST-SURFACE FIELDS IN EVERY RECOMMENDATION\n"
         "Every product you recommend MUST include, in the user's language:\n"
         "  1. Brand · SKU · name_es\n"
@@ -707,6 +689,9 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "        FLEXI · CR04021AZ · Correa New Classic cinta · 21.14€/ud · 5 m extensible para perros hasta 15 kg.\n"
         "  - End the reply with a single short invitation to refine: "
         "    '¿Lo ajusto al tamaño de tu perro o a un presupuesto?'\n\n"
+        "Advisory variant (when the query is advice/educational): lead with a short tip "
+        "(2–4 bullets or sentences), then 'Del catálogo te recomiendo:' followed by 3 products in the "
+        "same line format. Tip first, products second — never skip either.\n\n"
 
         "## COMPARISONS — ALWAYS COMPUTE VALUE METRICS\n"
         "When the user asks 'which is better value' / 'cuál es mejor precio' etc.:\n"
@@ -743,7 +728,6 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "- Never cite by page number — the catalog has none.\n"
         "- If the question is completely off-topic (weather, news, math), politely decline and redirect.\n\n"
 
-        "## PERMISSIBLE FILTER VALUES\n"
         "## PERMISSIBLE FILTER VALUES\n"
         "- brand: " + ", ".join(BRAND_ENUM) + "\n"
         "- category: " + ", ".join(CATEGORY_ENUM) + "\n"
@@ -1302,19 +1286,21 @@ def build_budget_basket(
 ) -> dict[str, Any]:
     """
     Compose a shopping basket that fits within `budget_eur`, respecting each
-    product's minimum purchase quantity. Deterministic greedy:
+    product's minimum purchase quantity.
 
       1. Scroll Qdrant with the given filters (discontinued items excluded).
       2. Keep only items with non-null price_pvpr AND min_purchase_qty.
       3. Compute line_total = price_pvpr × min_purchase_qty.
       4. Drop items whose line_total alone exceeds the budget.
-      5. Sort ascending by line_total.
-      6. Pass 1 — greedy add with diversity constraint until budget would be exceeded.
-      7. Pass 2 — if used < 90% of budget and we have room, relax diversity and top up.
+      5. Pass 1 — ascending greedy with diversity constraint; buys variety fast
+         and satisfies `min_items`.
+      6. Pass 2 — best-fit-decreasing top-up: sort remaining items descending by
+         line_total and keep adding the largest one that still fits residual
+         budget. Avoids the cheapest-first stall that leaves large budgets
+         half-empty.
 
-    Why greedy ascending works in practice: wholesale min-order multipliers make many
-    items effectively chunky (e.g. 54.40 €), and we want at least `min_items`. Starting
-    from the cheapest buys headroom for diversity; pass 2 then fills residual budget.
+    `max_items` is auto-scaled from the budget (`effective_max_items`) so
+    callers don't have to guess a ceiling proportional to spend.
     """
     try:
         budget_eur = float(budget_eur)
@@ -1330,6 +1316,11 @@ def build_budget_basket(
         min_items, max_items = 3, 8
     if diversity not in {"subcategory", "brand", "none"}:
         diversity = "subcategory"
+
+    # Auto-scale the item cap from the budget. Small baskets (€50) keep the
+    # caller's cap; large baskets (€200, €600) need more slots or ascending
+    # cheapest-first fill stalls long before reaching 90% budget use.
+    effective_max_items = min(max(max_items, int(budget_eur // 8), min_items), 30)
 
     flt = _build_filter(
         brand=brand, category=category, subcategory=subcategory, species=species,
@@ -1422,7 +1413,7 @@ def build_budget_basket(
         return False
 
     for item in items:
-        if len(basket) >= max_items:
+        if len(basket) >= effective_max_items:
             break
         if running + item["line_total"] > budget_eur + 1e-6:
             continue
@@ -1436,19 +1427,31 @@ def build_budget_basket(
         if item.get("brand"):
             used_brands.add(str(item["brand"]))
 
-    # 7. Pass 2 — if budget underused and room remains, relax diversity.
+    # 7. Pass 2 — best-fit-decreasing top-up. If budget is underfilled, sort
+    # remaining items descending by line_total and greedily add the largest
+    # one that still fits. Repeat until no unused item fits the residual
+    # budget. This kills the classic "cheapest-first fills with tiny items
+    # then stalls" failure mode on large budgets.
     relaxed = False
-    if running < budget_eur * 0.9 and len(basket) < max_items:
-        for item in items:
-            if len(basket) >= max_items:
+    if running < budget_eur * 0.9 and len(basket) < effective_max_items:
+        remaining_items = [
+            it for it in items if str(it["sku"] or "") not in chosen_skus
+        ]
+        remaining_items.sort(key=lambda x: x["line_total"], reverse=True)
+        while len(basket) < effective_max_items:
+            picked = None
+            for item in remaining_items:
+                if str(item["sku"] or "") in chosen_skus:
+                    continue
+                if running + item["line_total"] > budget_eur + 1e-6:
+                    continue
+                picked = item
                 break
-            if str(item["sku"] or "") in chosen_skus:
-                continue
-            if running + item["line_total"] > budget_eur + 1e-6:
-                continue
-            basket.append(item)
-            running = round(running + item["line_total"], 2)
-            chosen_skus.add(str(item["sku"] or ""))
+            if picked is None:
+                break
+            basket.append(picked)
+            running = round(running + picked["line_total"], 2)
+            chosen_skus.add(str(picked["sku"] or ""))
             relaxed = True
 
     used_pct = round(100.0 * running / budget_eur, 1) if budget_eur > 0 else 0.0
