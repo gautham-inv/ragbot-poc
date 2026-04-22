@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --background: #f7f8fa;
+  --foreground: #0f1420;
+  --surface: #ffffff;
+  --border: #e6e8ec;
+  --secondary: #667085;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+}
+
 html, body {
   margin: 0;
   padding: 0;

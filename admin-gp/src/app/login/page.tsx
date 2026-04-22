@@ -79,7 +79,7 @@ function LoginContent() {
           ) : null}
 
           <button
-            className="w-full rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-60 bg-[var(--primary)] hover:opacity-90"
+            className="w-full rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-60 bg-[var(--primary)] hover:bg-[var(--primary-hover)]"
             type="submit"
             disabled={submitting}
           >

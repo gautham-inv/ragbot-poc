@@ -81,11 +81,6 @@ const Icon = {
       <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
     </svg>
   ),
-  bell: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
-      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9zM9 21a3 3 0 0 0 6 0" />
-    </svg>
-  ),
   dl: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
       <path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
@@ -260,18 +255,18 @@ function KPI(props: {
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[10px] border border-rule shadow-soft-sm px-5 pt-[18px] pb-5",
+        "relative overflow-hidden rounded-[10px] border border-rule shadow-soft-sm px-5 pt-[18px] pb-5 text-center",
         primary ? "bg-card" : "bg-[#fbfcfd]"
       )}
     >
       {primary && <div className="absolute left-0 top-3.5 bottom-3.5 w-[3px] rounded-r bg-ink-700" />}
-      <div className={cn("flex items-center gap-2 text-xs font-medium mb-2.5", primary ? "text-ink-2" : "text-ink-3")}>
+      <div className={cn("flex items-center justify-center gap-2 text-xs font-medium mb-2.5", primary ? "text-ink-2" : "text-ink-3")}>
         <span>{label}</span>
         {!primary && (
           <span className="text-[10px] font-semibold uppercase text-ink-4 tracking-[0.06em]">· secondary</span>
         )}
       </div>
-      <div className="flex items-baseline gap-2.5 tabular-nums">
+      <div className="flex items-baseline justify-center gap-2.5 tabular-nums">
         <span
           className={cn(
             "font-semibold tracking-[-0.02em] text-ink-text",
@@ -1035,7 +1030,6 @@ export default function Page() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [openQuery, setOpenQuery] = useState<RecentQuery | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [brandMode, setBrandMode] = useState<"hits" | "share">("hits");
   const [subcatMode, setSubcatMode] = useState<"hits" | "share">("hits");
   const [toast, setToast] = useState("");
@@ -1106,7 +1100,7 @@ export default function Page() {
     ? topSubcats.map((d) => ({ ...d, value: +((d.value / subcatSum) * 100).toFixed(1) }))
     : topSubcats;
 
-  // Notifications derived from live state.
+  /* Notifications derived from live state.
   const notifs = useMemo(() => {
     if (!kpis) return [];
     const items: { id: string; level: "crit" | "warn" | ""; title: string; desc: string; t: string }[] = [];
@@ -1157,8 +1151,7 @@ export default function Page() {
     }
     return items;
   }, [kpis, range]);
-
-  const unreadNotifs = notifs.filter((n) => n.level !== "").length;
+  */
 
   const sparkTotal = buildSpark(volume, "total");
   const sparkPurchase = buildSpark(volume, "purchase_rate");
@@ -1176,8 +1169,7 @@ export default function Page() {
           <b className="text-ink-text font-semibold">AI Query Performance</b>
         </div>
         <div className="flex-1" />
-        <div className="inline-flex items-center gap-2 px-2.5 py-1.5 border border-rule rounded-md bg-card text-[12.5px] font-medium text-ink-2">
-          <span className={cn("h-1.5 w-1.5 rounded-full", loading ? "bg-ink-3" : "bg-aqua-500")} />
+        <div className="inline-flex items-center px-2.5 py-1.5 border border-rule rounded-md bg-card text-[12.5px] font-medium text-ink-2">
           {new Date().toLocaleString("en-US", { month: "short", day: "numeric" })} · {loading ? "loading" : "live"}
         </div>
         <div className="inline-flex bg-card border border-rule rounded-md p-[3px]">
@@ -1204,11 +1196,11 @@ export default function Page() {
         </button>
         <div className="relative">
           <button
-            className="h-8 w-8 rounded-md border border-rule bg-card grid place-items-center text-ink-2 hover:border-rule-strong hover:text-ink-text"
-            title="Export"
-            onClick={() => { setExportOpen((v) => !v); setNotifOpen(false); }}
-          >
-            {Icon.dl}
+              className="h-8 w-8 rounded-md border border-rule bg-card grid place-items-center text-ink-2 hover:border-rule-strong hover:text-ink-text"
+              title="Export"
+              onClick={() => { setExportOpen((v) => !v); }}
+            >
+              {Icon.dl}
           </button>
           <Popover open={exportOpen} onClose={() => setExportOpen(false)}>
             <div className="flex items-center gap-2.5 py-3 px-3.5 border-b border-rule">
@@ -1238,53 +1230,6 @@ export default function Page() {
             </div>
             <div className="py-2 px-3.5 border-t border-rule text-xs text-ink-3">
               Range: last {range}
-            </div>
-          </Popover>
-        </div>
-        <div className="relative">
-          <div className="relative">
-            <button
-              className="h-8 w-8 rounded-md border border-rule bg-card grid place-items-center text-ink-2 hover:border-rule-strong hover:text-ink-text"
-              title="Notifications"
-              onClick={() => { setNotifOpen((v) => !v); setExportOpen(false); }}
-            >
-              {Icon.bell}
-            </button>
-            {unreadNotifs > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 h-[9px] w-[9px] rounded-full bg-aqua-500 border-2 border-canvas" />
-            )}
-          </div>
-          <Popover open={notifOpen} onClose={() => setNotifOpen(false)} className="w-[360px]">
-            <div className="flex items-center gap-2.5 py-3 px-3.5 border-b border-rule">
-              <h4 className="m-0 text-[13px] font-semibold">Notifications</h4>
-              {unreadNotifs > 0 && (
-                <span className="text-[11px] px-1.5 py-0.5 bg-[#f1f3f6] rounded-full text-ink-2">
-                  {unreadNotifs} new
-                </span>
-              )}
-            </div>
-            <div className="max-h-[380px] overflow-y-auto">
-              {notifs.map((n) => (
-                <div
-                  key={n.id}
-                  className="grid grid-cols-[8px_1fr_auto] gap-2.5 items-start py-3 px-3.5 border-b border-[#f0f1f4] last:border-b-0 hover:bg-[#fafbfc]"
-                >
-                  <span
-                    className={cn(
-                      "h-2 w-2 rounded-full mt-1.5",
-                      n.level === "crit" ? "bg-bad" : n.level === "warn" ? "bg-[#d68800]" : "bg-aqua-500"
-                    )}
-                  />
-                  <div>
-                    <div className="text-[13px] font-medium text-ink-text">{n.title}</div>
-                    <div className="text-xs text-ink-2 mt-0.5 leading-snug">{n.desc}</div>
-                  </div>
-                  <span className="text-[11px] text-ink-3 tabular-nums whitespace-nowrap">{n.t}</span>
-                </div>
-              ))}
-            </div>
-            <div className="py-2 px-3.5 border-t border-rule text-xs text-ink-3 flex">
-              <span>Derived from live telemetry</span>
             </div>
           </Popover>
         </div>
