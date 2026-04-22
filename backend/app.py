@@ -1531,6 +1531,8 @@ def chat_tools_stream(req: ChatRequest):
         tool_trace: list[dict[str, Any]] = []
         answer = ""
         sources_out: list[dict[str, Any]] = []
+        retrieved_skus: list[str] = []
+        sku_product_names: dict[str, str] = {}
         error: str | None = None
 
         try:
@@ -1638,6 +1640,29 @@ def chat_tools_stream(req: ChatRequest):
                             }
                         )
 
+                    # Enrich trace output so the admin dashboard can render "Top SKUs retrieved"
+                    # with product names, even for tools-stream traces.
+                    try:
+                        sku_product_names = {}
+                        for s in sources_out:
+                            md = (s or {}).get("metadata") or {}
+                            if not isinstance(md, dict):
+                                continue
+                            sku = str(md.get("sku") or "").strip()
+                            if not sku:
+                                continue
+                            name = (
+                                str(md.get("name_es") or "").strip()
+                                or str(md.get("name") or "").strip()
+                                or str(md.get("product") or "").strip()
+                            )
+                            if sku and name and sku not in sku_product_names:
+                                sku_product_names[sku] = name
+                        retrieved_skus = sorted(sku_product_names.keys())
+                    except Exception:
+                        retrieved_skus = []
+                        sku_product_names = {}
+
                     yield _sse({"type": "phase", "phase": "finalizing"})
                     yield _sse({
                         "type": "done",
@@ -1665,6 +1690,9 @@ def chat_tools_stream(req: ChatRequest):
                             "tool_trace": tool_trace,
                             "rounds": len(tool_trace),
                             "retrieved_count": len(sources_out),
+                            "retrieved_skus": retrieved_skus,
+                            "sku_product_names": sku_product_names,
+                            "sku_counts_in_answer": _sku_counts_in_text(answer, retrieved_skus),
                             "retrieved_brands": _extract_retrieved_brands(sources_out),
                             "retrieved_categories": _extract_retrieved_categories(sources_out),
                             "retrieved_subcategories": _extract_retrieved_subcategories(sources_out),
