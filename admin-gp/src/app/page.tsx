@@ -376,13 +376,13 @@ function HourBars({ data }: { data: VolumeRow[] }) {
   const nowH = new Date().getHours();
   return (
     <div>
-      <div className="grid grid-cols-24 gap-[3px] h-[180px] items-end pt-2 relative"
+      <div className="grid grid-cols-24 gap-[3px] h-[180px] pt-2 relative"
         style={{ gridTemplateColumns: "repeat(24, minmax(0, 1fr))" }}>
         <div className="grid-lines"><div /><div /><div /><div /></div>
         {totals.map((v, i) => (
-          <div key={i} className="relative group">
+          <div key={i} className="relative group h-full flex items-end">
             <div
-              className="rounded-t min-h-[2px] transition-all duration-150 ease-ease"
+              className="w-full rounded-t min-h-[2px] transition-all duration-150 ease-ease"
               style={{
                 height: `${(v / max) * 100}%`,
                 background: i === nowH ? "#37BAD1" : "#003777",
