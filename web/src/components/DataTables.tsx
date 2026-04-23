@@ -19,7 +19,7 @@ export const TopSKUsTable: React.FC<{ data: SKU[] }> = ({ data }) => (
             <th style={{ padding: '0.75rem', width: '30%' }}>SKU</th>
             <th style={{ padding: '0.75rem', width: '40%' }}>Product</th>
             <th style={{ padding: '0.75rem', width: '15%' }}>Hits</th>
-            <th style={{ padding: '0.75rem', width: '15%' }}>Freq</th>
+            <th style={{ padding: '0.75rem', width: '15%' }}>Freq.</th>
           </tr>
         </thead>
         <tbody>
