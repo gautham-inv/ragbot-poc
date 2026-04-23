@@ -33,6 +33,7 @@ from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
 from backend.tools import build_tool_system_prompt, render_compare_products_markdown, run_tool_loop, run_tool_loop_stream
+from backend.db import ensure_conversation_id, init_chat_schema, insert_message
 
 load_project_env()
 
@@ -56,9 +57,11 @@ class ChatRequest(BaseModel):
     history: list[dict[str, str]] | None = None
     top_k: int | None = None
     top_n: int | None = None
+    conversation_id: str | None = None
 
 
 class ChatResponse(BaseModel):
+    conversation_id: str
     answer: str
     sources: list[dict[str, Any]]
     sources_total: int | None = None
@@ -67,6 +70,15 @@ class ChatResponse(BaseModel):
     # Compact product cards derived from retrieved SKUs (deduped, with image URLs
     # attached from data/sku_image_map.json). Empty list if no products match.
     products: list[dict[str, Any]] = []
+
+
+@app.on_event("startup")
+def _init_chat_db() -> None:
+    # Best-effort: enabled only when CHAT_DATABASE_URL is set.
+    try:
+        init_chat_schema()
+    except Exception as e:
+        logger.warning("[chat_db] init failed: %s: %s", type(e).__name__, e)
 
 
 @lru_cache(maxsize=1)
@@ -847,6 +859,17 @@ def chat(req: ChatRequest) -> ChatResponse:
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
+    conversation_id = ensure_conversation_id(req.conversation_id)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=query,
+            metadata={"endpoint": "/api/chat"},
+        )
+    except Exception:
+        pass
+
     rid = uuid.uuid4().hex[:8]
     t_req = time.perf_counter()
     logger.info("[%s] /api/chat query=%r history_len=%d", rid, query, len(req.history or []))
@@ -1091,7 +1114,23 @@ def chat(req: ChatRequest) -> ChatResponse:
                 pass
 
     products = _products_from_sources(retrieved_chunks)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=answer,
+            metadata={
+                "endpoint": "/api/chat",
+                "sources_count": len(retrieved_chunks),
+                "products_count": len(products or []),
+                "rewritten_query": search_query,
+                "enriched_query": enriched_query,
+            },
+        )
+    except Exception:
+        pass
     return ChatResponse(
+        conversation_id=conversation_id,
         answer=answer,
         sources=retrieved_chunks,
         rewritten_query=search_query,
@@ -1105,6 +1144,17 @@ def chat_stream(req: ChatRequest):
     query = (req.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
+
+    conversation_id = ensure_conversation_id(req.conversation_id)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=query,
+            metadata={"endpoint": "/api/chat_stream"},
+        )
+    except Exception:
+        pass
 
     rid = uuid.uuid4().hex[:8]
     t_req = time.perf_counter()
@@ -1382,9 +1432,25 @@ def chat_stream(req: ChatRequest):
             products = _products_from_sources(retrieved_chunks)
             if products:
                 yield _sse({"type": "products", "items": products})
+            try:
+                insert_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=full,
+                    metadata={
+                        "endpoint": "/api/chat_stream",
+                        "sources_count": len(retrieved_chunks),
+                        "products_count": len(products or []),
+                        "rewritten_query": search_query,
+                        "enriched_query": enriched_query,
+                    },
+                )
+            except Exception:
+                pass
             yield _sse(
                 {
                     "type": "done",
+                    "conversation_id": conversation_id,
                     "answer": full,
                     "sources": retrieved_chunks,
                     "rewritten_query": search_query,
@@ -1444,6 +1510,17 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
     query = (req.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
+
+    conversation_id = ensure_conversation_id(req.conversation_id)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=query,
+            metadata={"endpoint": "/api/chat_tools"},
+        )
+    except Exception:
+        pass
 
     langfuse = _get_langfuse_client()
     span = None
@@ -1584,7 +1661,21 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             pass
 
     products = _products_from_sources(sources)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="assistant",
+            content=answer,
+            metadata={
+                "endpoint": "/api/chat_tools",
+                "sources_count": len(sources),
+                "products_count": len(products or []),
+            },
+        )
+    except Exception:
+        pass
     return ChatResponse(
+        conversation_id=conversation_id,
         answer=answer,
         sources=sources,
         sources_total=sources_total,
@@ -1608,6 +1699,17 @@ def chat_tools_stream(req: ChatRequest):
     query = (req.query or "").strip()
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
+
+    conversation_id = ensure_conversation_id(req.conversation_id)
+    try:
+        insert_message(
+            conversation_id=conversation_id,
+            role="user",
+            content=query,
+            metadata={"endpoint": "/api/chat_tools_stream"},
+        )
+    except Exception:
+        pass
 
     # --- Langfuse: create the span OUTSIDE the generator so input is logged
     # even if the generator crashes before producing its first event. ---
@@ -1769,8 +1871,22 @@ def chat_tools_stream(req: ChatRequest):
                     products = _products_from_sources(sources_out)
                     if products:
                         yield _sse({"type": "products", "items": products})
+                    try:
+                        insert_message(
+                            conversation_id=conversation_id,
+                            role="assistant",
+                            content=answer,
+                            metadata={
+                                "endpoint": "/api/chat_tools_stream",
+                                "sources_count": len(sources_out),
+                                "products_count": len(products or []),
+                            },
+                        )
+                    except Exception:
+                        pass
                     yield _sse({
                         "type": "done",
+                        "conversation_id": conversation_id,
                         "answer": answer,
                         "sources": sources_out,
                         "sources_total": sources_total,

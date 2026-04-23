@@ -198,6 +198,7 @@ function getSseData(rawEvent: string) {
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
@@ -433,6 +434,7 @@ export default function Home() {
             }
 
             if (evt.type === "done") {
+              if (evt.conversation_id) setConversationId(evt.conversation_id);
               updateAssistantMessage(assistantId, (m) => ({
                 ...m,
                 content: evt.answer ?? m.content,
@@ -470,7 +472,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: text,
-          history: historyForBackend
+          history: historyForBackend,
+          conversation_id: conversationId
         })
       });
       if (await consumeSse(toolStreamRes)) return;
@@ -480,12 +483,14 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: text,
-          history: historyForBackend
+          history: historyForBackend,
+          conversation_id: conversationId
         })
       });
 
       if (toolRes.ok) {
         const data = await toolRes.json();
+        if (typeof (data as any)?.conversation_id === "string") setConversationId((data as any).conversation_id);
         const answer = typeof data?.answer === "string" ? data.answer : "No response.";
         const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
         const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
@@ -511,7 +516,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           query: text,
-          history: historyForBackend
+          history: historyForBackend,
+          conversation_id: conversationId
         })
       });
       if (await consumeSse(res)) return;
@@ -520,9 +526,10 @@ export default function Home() {
       const fallback = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text, history: historyForBackend })
+        body: JSON.stringify({ query: text, history: historyForBackend, conversation_id: conversationId })
       });
       const data = await fallback.json();
+      if (typeof (data as any)?.conversation_id === "string") setConversationId((data as any).conversation_id);
       const answer = typeof data?.answer === "string" ? data.answer : "No response.";
       const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
       const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
@@ -650,7 +657,7 @@ export default function Home() {
           </span>
           Gloria Pets Catalog Bot
         </div>
-        <button onClick={() => setMessages([])} className="rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white">
+        <button onClick={() => { setMessages([]); setConversationId(null); }} className="rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white">
           New chat +
         </button>
         <div className="space-y-2 pt-2 text-xs text-slate-500">
@@ -662,7 +669,7 @@ export default function Home() {
             Warm up
           </button>
           <button
-            onClick={() => setMessages([])}
+            onClick={() => { setMessages([]); setConversationId(null); }}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:border-brand-300"
           >
             Clear chat

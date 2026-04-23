@@ -1,0 +1,30 @@
+{
+  # Enable env var substitution (for BASIC_AUTH_USER/BASIC_AUTH_HASH).
+  # Note: The Caddy systemd service or container should pass these env vars.
+}
+
+gloriapets-chatbot.innovin.win {
+  encode gzip
+
+  # API routes must remain reachable by the webapp without prompting for Basic Auth.
+  handle_path /api/* {
+    reverse_proxy 127.0.0.1:8000
+  }
+
+  handle /health {
+    reverse_proxy 127.0.0.1:8000
+  }
+
+  handle /warmup {
+    reverse_proxy 127.0.0.1:8000
+  }
+
+  # Protect the webapp UI.
+  handle {
+    basicauth {
+      {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+    }
+    reverse_proxy 127.0.0.1:3000
+  }
+}
+

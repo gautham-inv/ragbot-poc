@@ -11,3 +11,4 @@ fastapi
 uvicorn
 python-multipart
 httpx
+psycopg[binary]
