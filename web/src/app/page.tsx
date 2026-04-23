@@ -108,17 +108,17 @@ function ProductCards({ items }: { items: ProductCard[] }) {
         return (
           <div
             key={p.sku}
-            className="flex w-44 flex-none snap-start flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            className="flex h-72 w-44 flex-none snap-start flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
             title={title}
           >
-            <div className="aspect-square w-full bg-slate-50">
+            <div className="h-40 w-full flex-none bg-slate-50">
               {img ? (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
                   src={img}
                   alt={title}
                   loading="lazy"
-                  className="h-full w-full object-contain"
+                  className="h-full w-full object-cover"
                   onError={(e) => {
                     // Hide broken images gracefully.
                     (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
