@@ -732,6 +732,8 @@ export default function Home() {
                           className="space-y-2"
                           components={{
                             p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+                            // Images should only render inside dedicated "card" UIs, not inline in the normal response bubble.
+                            img: () => null,
                             strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
                             ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
                             ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
