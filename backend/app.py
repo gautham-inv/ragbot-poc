@@ -64,6 +64,9 @@ class ChatResponse(BaseModel):
     sources_total: int | None = None
     rewritten_query: str | None = None
     enriched_query: str | None = None
+    # Compact product cards derived from retrieved SKUs (deduped, with image URLs
+    # attached from data/sku_image_map.json). Empty list if no products match.
+    products: list[dict[str, Any]] = []
 
 
 @lru_cache(maxsize=1)
@@ -673,6 +676,88 @@ def _source_chunk_id(payload: dict[str, Any]) -> str | None:
     return str(cid) if cid else None
 
 
+def _products_from_sources(
+    sources: list[dict[str, Any]],
+    *,
+    max_products: int = 12,
+) -> list[dict[str, Any]]:
+    """
+    Build deduped product cards from a `sources` list (shape produced by either
+    `/api/chat` or `/api/chat_tools`). Attaches Cloudinary image URLs from the
+    SKU → image map (written by `ingestion/upload_product_images.py`), drops any
+    entry without a SKU, and preserves first-appearance order.
+    """
+    from backend.image_map import get_images  # local import keeps startup light
+
+    out: list[dict[str, Any]] = []
+    seen_skus: set[str] = set()
+
+    for src in sources:
+        if not isinstance(src, dict):
+            continue
+        meta = src.get("metadata") or {}
+        if not isinstance(meta, dict):
+            continue
+
+        sku_raw = meta.get("sku")
+        if not sku_raw:
+            continue
+        sku = str(sku_raw).strip()
+        if not sku or sku in seen_skus:
+            continue
+
+        # metadata may already contain image fields (set by tools._product_summary
+        # after batch 1). Fall back to the JSON map otherwise.
+        primary = meta.get("primary_image") or ""
+        thumbnail = meta.get("thumbnail") or ""
+        images = list(meta.get("images") or [])
+        thumbnails = list(meta.get("thumbnails") or [])
+        if not primary and not images:
+            rec = get_images(sku)
+            if rec:
+                primary = rec.get("primary_image") or ""
+                thumbnail = rec.get("thumbnail") or ""
+                images = list(rec.get("images") or [])
+                thumbnails = list(rec.get("thumbnails") or [])
+
+        # Product name prefers the product-summary fields, falls back to payload keys.
+        name = (
+            meta.get("name_es")
+            or meta.get("name")
+            or meta.get("product_name")
+            or (meta.get("names") or {}).get("es")
+            or ""
+        )
+
+        card = {
+            "sku": sku,
+            "brand": meta.get("brand") or "",
+            "name": name,
+            "category": meta.get("category") or "",
+            "subcategory": meta.get("subcategory") or "",
+            "price_pvpr": meta.get("price_pvpr") or meta.get("price_eur"),
+            "price_per_unit": meta.get("price_per_unit"),
+            "min_purchase_qty": meta.get("min_purchase_qty") or meta.get("min_order"),
+            "primary_image": primary,
+            "thumbnail": thumbnail,
+            "images": images,
+            "thumbnails": thumbnails,
+            "catalog_pages": meta.get("catalog_pages"),
+            "primary_page": meta.get("primary_page"),
+        }
+        # Only include cards that actually have at least one image — otherwise
+        # the frontend has nothing useful to show.
+        if not (card["primary_image"] or card["images"]):
+            continue
+
+        seen_skus.add(sku)
+        out.append(card)
+        if len(out) >= max_products:
+            break
+
+    return out
+
+
 def _normalize_source(payload: dict[str, Any], *, score: float) -> dict[str, Any]:
     meta = _source_meta(payload)
     chunk_id = _source_chunk_id(payload) or ""
@@ -1005,7 +1090,14 @@ def chat(req: ChatRequest) -> ChatResponse:
             except Exception:
                 pass
 
-    return ChatResponse(answer=answer, sources=retrieved_chunks, rewritten_query=search_query, enriched_query=enriched_query)
+    products = _products_from_sources(retrieved_chunks)
+    return ChatResponse(
+        answer=answer,
+        sources=retrieved_chunks,
+        rewritten_query=search_query,
+        enriched_query=enriched_query,
+        products=products,
+    )
 
 
 @app.post("/api/chat_stream")
@@ -1287,6 +1379,9 @@ def chat_stream(req: ChatRequest):
                 except Exception:
                     pass
 
+            products = _products_from_sources(retrieved_chunks)
+            if products:
+                yield _sse({"type": "products", "items": products})
             yield _sse(
                 {
                     "type": "done",
@@ -1294,6 +1389,7 @@ def chat_stream(req: ChatRequest):
                     "sources": retrieved_chunks,
                     "rewritten_query": search_query,
                     "enriched_query": enriched_query,
+                    "products": products,
                 }
             )
         except Exception as e:
@@ -1487,7 +1583,13 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         except Exception:
             pass
 
-    return ChatResponse(answer=answer, sources=sources, sources_total=sources_total)
+    products = _products_from_sources(sources)
+    return ChatResponse(
+        answer=answer,
+        sources=sources,
+        sources_total=sources_total,
+        products=products,
+    )
 
 
 @app.post("/api/chat_tools_stream")
@@ -1664,11 +1766,15 @@ def chat_tools_stream(req: ChatRequest):
                         sku_product_names = {}
 
                     yield _sse({"type": "phase", "phase": "finalizing"})
+                    products = _products_from_sources(sources_out)
+                    if products:
+                        yield _sse({"type": "products", "items": products})
                     yield _sse({
                         "type": "done",
                         "answer": answer,
                         "sources": sources_out,
                         "sources_total": sources_total,
+                        "products": products,
                     })
                     return
 

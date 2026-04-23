@@ -11,6 +11,23 @@ type SourceChunk = {
   score?: number;
 };
 
+type ProductCard = {
+  sku: string;
+  brand?: string;
+  name?: string;
+  category?: string;
+  subcategory?: string;
+  price_pvpr?: number | null;
+  price_per_unit?: number | null;
+  min_purchase_qty?: number | null;
+  primary_image?: string;
+  thumbnail?: string;
+  images?: string[];
+  thumbnails?: string[];
+  catalog_pages?: number[] | null;
+  primary_page?: number | null;
+};
+
 type Message = {
   id: string;
   role: "user" | "assistant";
@@ -19,6 +36,7 @@ type Message = {
   sources_total?: number;
   rewritten_query?: string;
   enriched_query?: string;
+  products?: ProductCard[];
 };
 
 function newId(prefix: string) {
@@ -73,6 +91,61 @@ function Waveform() {
   );
 }
 
+function formatEur(n: number | null | undefined) {
+  if (n == null || !Number.isFinite(Number(n))) return null;
+  return `€${Number(n).toFixed(2)}`;
+}
+
+function ProductCards({ items }: { items: ProductCard[] }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="mt-3 -mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2">
+      {items.map((p) => {
+        const img = p.thumbnail || p.primary_image || (p.thumbnails && p.thumbnails[0]) || (p.images && p.images[0]) || "";
+        const title = p.name || p.sku;
+        const priceLabel = formatEur(p.price_pvpr ?? p.price_per_unit ?? null);
+        const catLine = [p.brand, p.category, p.subcategory].filter(Boolean).join(" · ");
+        return (
+          <div
+            key={p.sku}
+            className="flex w-44 flex-none snap-start flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            title={title}
+          >
+            <div className="aspect-square w-full bg-slate-50">
+              {img ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={img}
+                  alt={title}
+                  loading="lazy"
+                  className="h-full w-full object-contain"
+                  onError={(e) => {
+                    // Hide broken images gracefully.
+                    (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                  }}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">No image</div>
+              )}
+            </div>
+            <div className="flex flex-1 flex-col gap-1 p-2.5">
+              <div className="line-clamp-2 text-[12px] font-semibold leading-tight text-slate-800">{title}</div>
+              {catLine && <div className="text-[10.5px] text-slate-500">{catLine}</div>}
+              <div className="mt-auto flex items-baseline justify-between pt-1">
+                <span className="font-mono text-[10px] text-brand-700">{p.sku}</span>
+                {priceLabel && <span className="text-[12px] font-semibold text-slate-800">{priceLabel}</span>}
+              </div>
+              {p.min_purchase_qty != null && Number(p.min_purchase_qty) > 1 && (
+                <div className="text-[10.5px] text-slate-500">Min. pedido: {p.min_purchase_qty} uds</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ThinkingDots() {
   return (
     <div className="flex items-center gap-1">
@@ -92,6 +165,7 @@ type StreamEvent =
   | { type: "rewrite"; rewritten_query: string }
   | { type: "enrich"; enriched_query: string }
   | { type: "token"; delta: string }
+  | { type: "products"; items: ProductCard[] }
   | {
       type: "done";
       answer: string;
@@ -99,6 +173,7 @@ type StreamEvent =
       sources_total?: number;
       rewritten_query?: string;
       enriched_query?: string;
+      products?: ProductCard[];
     }
   | { type: "error"; message: string };
 
@@ -352,6 +427,11 @@ export default function Home() {
               continue;
             }
 
+            if (evt.type === "products") {
+              updateAssistantMessage(assistantId, (m) => ({ ...m, products: evt.items || [] }));
+              continue;
+            }
+
             if (evt.type === "done") {
               updateAssistantMessage(assistantId, (m) => ({
                 ...m,
@@ -359,7 +439,8 @@ export default function Home() {
                 sources: evt.sources ?? m.sources,
                 sources_total: typeof evt.sources_total === "number" ? evt.sources_total : m.sources_total,
                 rewritten_query: evt.rewritten_query ?? m.rewritten_query,
-                enriched_query: evt.enriched_query ?? m.enriched_query
+                enriched_query: evt.enriched_query ?? m.enriched_query,
+                products: Array.isArray(evt.products) ? evt.products : m.products,
               }));
               setLoading(false);
               setLoadingStatus(null);
@@ -407,13 +488,15 @@ export default function Home() {
         const data = await toolRes.json();
         const answer = typeof data?.answer === "string" ? data.answer : "No response.";
         const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
+        const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
         updateAssistantMessage(assistantId, (m) => ({
           ...m,
           content: answer,
           sources,
           sources_total: typeof data?.sources_total === "number" ? data.sources_total : undefined,
           rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
-          enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
+          enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined,
+          products,
         }));
         setLoading(false);
         setLoadingStatus(null);
@@ -442,13 +525,15 @@ export default function Home() {
       const data = await fallback.json();
       const answer = typeof data?.answer === "string" ? data.answer : "No response.";
       const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
+      const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
       updateAssistantMessage(assistantId, (m) => ({
         ...m,
         content: answer,
         sources,
         sources_total: typeof data?.sources_total === "number" ? data.sources_total : undefined,
         rewritten_query: typeof data?.rewritten_query === "string" ? data.rewritten_query : undefined,
-        enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined
+        enriched_query: typeof data?.enriched_query === "string" ? data.enriched_query : undefined,
+        products,
       }));
       setLoading(false);
       setLoadingStatus(null);
@@ -674,6 +759,10 @@ export default function Home() {
                         </ReactMarkdown>
                       ) : (
                         <div className="whitespace-pre-wrap">{m.content}</div>
+                      )}
+
+                      {m.role === "assistant" && m.products && m.products.length > 0 && (
+                        <ProductCards items={m.products} />
                       )}
 
                       {m.role === "assistant" && m.sources && m.sources.length > 0 && (

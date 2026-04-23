@@ -1,0 +1,17 @@
+{
+  "total_rows": 12103,
+  "total_successes": 45,
+  "total_skipped": 12057,
+  "total_failures": 1,
+  "total_skus": 5480,
+  "failures": [
+    {
+      "sku": "HU207083",
+      "file_name": "HU207083_3.jpg",
+      "error": "upload failed for public_id='HU207083_3': Invalid image file",
+      "failed": true
+    }
+  ],
+  "elapsed_sec": 130.6,
+  "map_path": "/Users/dias/Documents/ragbot-poc/data/sku_image_map.json"
+}

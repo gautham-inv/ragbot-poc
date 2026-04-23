@@ -29,6 +29,7 @@ from functools import lru_cache
 from typing import Any, Iterator
 
 import httpx
+from backend.image_map import attach_images
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     FieldCondition,
@@ -355,35 +356,7 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         effective_unit_price = None
 
-
-    price_pvpr = payload.get("price_pvpr") or payload.get("price_eur")
-    price_per_unit = payload.get("price_per_unit")
-    min_qty = payload.get("min_purchase_qty") or payload.get("min_order")
-
-    # Derived metrics — make the LLM's job easier and remove a common miscalculation.
-    # price_total_min_order = what the buyer actually pays for a minimum-compliant order.
-    try:
-        price_total_min_order = (
-            round(float(price_pvpr) * float(min_qty), 2)
-            if price_pvpr is not None and min_qty is not None
-            else None
-        )
-    except (TypeError, ValueError):
-        price_total_min_order = None
-
-    # effective_price_per_unit — what the LLM should use when comparing VALUE between products.
-    # Prefer explicit price_per_unit if set; else treat price_pvpr as per-unit (typical case).
-    try:
-        effective_unit_price = (
-            float(price_per_unit) if price_per_unit is not None else
-            (float(price_pvpr) if price_pvpr is not None else None)
-        )
-        if effective_unit_price is not None:
-            effective_unit_price = round(effective_unit_price, 2)
-    except (TypeError, ValueError):
-        effective_unit_price = None
-
-    return {
+    product = {
         "id": payload.get("id") or payload.get("chunk_id"),
         "brand": payload.get("brand"),
         "sku": payload.get("sku"),
@@ -402,20 +375,9 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
         # PDF catalog cross-reference (populated by indexing/patch_qdrant_pages.py).
         "catalog_pages": payload.get("catalog_pages"),
         "primary_page": payload.get("primary_page"),
-        "price_pvpr": price_pvpr,
-        "price_per_unit": price_per_unit,
-        "min_purchase_qty": min_qty,
-        # Derived — the LLM should use these directly for budgets & comparisons.
-        "price_total_min_order": price_total_min_order,
-        "effective_unit_price": effective_unit_price,
-        "has_price": price_pvpr is not None,
-        # PDF catalog cross-reference (populated by indexing/patch_qdrant_pages.py).
-        "catalog_pages": payload.get("catalog_pages"),
-        "primary_page": payload.get("primary_page"),
         "size_label": payload.get("size_label"),
         "color": payload.get("color"),
         "scent": payload.get("scent"),
-        "capacity_raw": payload.get("capacity_raw"),
         "capacity_raw": payload.get("capacity_raw"),
         "change_flag": payload.get("change_flag"),
         # Fit ranges (only set when present on the brand).
@@ -430,6 +392,7 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "weight_g": payload.get("weight_g"),
         "text": payload.get("text"),
     }
+    return attach_images(product)
 
 
 def _range(lo: Any, hi: Any) -> list[float] | None:
