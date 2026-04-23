@@ -174,6 +174,7 @@ type StreamEvent =
       rewritten_query?: string;
       enriched_query?: string;
       products?: ProductCard[];
+      conversation_id?: string;
     }
   | { type: "error"; message: string };
 
