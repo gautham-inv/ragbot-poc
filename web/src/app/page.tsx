@@ -261,11 +261,16 @@ export default function Home() {
       const rawMessages = Array.isArray(data?.messages) ? data.messages : [];
       const restored: Message[] = rawMessages
         .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
-        .map((m: any) => ({
-          id: `db-${String(m.id)}`,
-          role: m.role,
-          content: typeof m.content === "string" ? m.content : "",
-        }));
+        .map((m: any) => {
+          const md = (m && typeof m.metadata === "object" && m.metadata) || {};
+          const products = Array.isArray((md as any).products) ? ((md as any).products as ProductCard[]) : undefined;
+          return {
+            id: `db-${String(m.id)}`,
+            role: m.role,
+            content: typeof m.content === "string" ? m.content : "",
+            products: m.role === "assistant" ? products : undefined,
+          } as Message;
+        });
       setMessages(restored);
       setConversationId(conversationIdToLoad);
     } catch {
@@ -715,7 +720,7 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
-      <aside className="sticky top-0 hidden h-screen w-72 flex-col gap-6 overflow-y-auto border-r border-slate-200 bg-white p-6 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-72 flex-col gap-4 overflow-hidden border-r border-slate-200 bg-white p-6 md:flex">
         <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600">
             <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
@@ -731,9 +736,9 @@ export default function Home() {
         >
           New chat +
         </button>
-        <div className="space-y-2">
+        <div className="flex min-h-0 flex-1 flex-col space-y-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent conversations</div>
-          <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
+          <div className="min-h-0 flex-1 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
             {historyLoading && <div className="px-2 py-1 text-xs text-slate-500">Loading...</div>}
             {!historyLoading && conversationHistory.length === 0 && (
               <div className="px-2 py-1 text-xs text-slate-500">No conversations yet.</div>

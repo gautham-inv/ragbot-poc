@@ -313,8 +313,8 @@ def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[
         if callable(fn):
             fn(trace_id=trace_id, tags=deduped)
             return
-    except Exception as e:
-        logger.warning("[chat_db] insert user message failed (/api/chat): %s: %s", type(e).__name__, e)
+    except Exception:
+        pass
 
     # Fallback: best-effort propagation (no-op if tracing context isn't active).
     try:
@@ -322,8 +322,8 @@ def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[
 
         with propagate_attributes(tags=deduped):
             pass
-    except Exception as e:
-        logger.warning("[chat_db] insert assistant message failed (/api/chat): %s: %s", type(e).__name__, e)
+    except Exception:
+        pass
 
 
 
@@ -511,8 +511,8 @@ def _langfuse_score_sku_counts(span: Any, *, query: str, answer: str, skus: list
 
     try:
         score_fn(name="sku_query_count__TOTAL", value=float(total_query), data_type="NUMERIC")
-    except Exception as e:
-        logger.warning("[chat_db] insert user message failed (/api/chat_stream): %s: %s", type(e).__name__, e)
+    except Exception:
+        pass
     try:
         score_fn(name="sku_answer_count__TOTAL", value=float(total_answer), data_type="NUMERIC")
     except Exception:
@@ -1003,12 +1003,8 @@ def chat(req: ChatRequest) -> ChatResponse:
                         "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
                     }
                 )
-            except Exception as e:
-                logger.warning(
-                    "[chat_db] insert assistant message failed (/api/chat_stream): %s: %s",
-                    type(e).__name__,
-                    e,
-                )
+            except Exception:
+                pass
 
         t0 = time.perf_counter()
         vec = qdrant_search(
@@ -1192,12 +1188,13 @@ def chat(req: ChatRequest) -> ChatResponse:
                 "endpoint": "/api/chat",
                 "sources_count": len(retrieved_chunks),
                 "products_count": len(products or []),
+                "products": products or [],
                 "rewritten_query": search_query,
                 "enriched_query": enriched_query,
             },
         )
     except Exception as e:
-        logger.warning("[chat_db] insert user message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
+        logger.warning("[chat_db] insert assistant message failed (/api/chat): %s: %s", type(e).__name__, e)
     return ChatResponse(
         conversation_id=conversation_id,
         answer=answer,
@@ -1223,7 +1220,7 @@ def chat_stream(req: ChatRequest):
             metadata={"endpoint": "/api/chat_stream"},
         )
     except Exception as e:
-        logger.warning("[chat_db] insert assistant message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
+        logger.warning("[chat_db] insert user message failed (/api/chat_stream): %s: %s", type(e).__name__, e)
 
     rid = uuid.uuid4().hex[:8]
     t_req = time.perf_counter()
@@ -1510,6 +1507,7 @@ def chat_stream(req: ChatRequest):
                         "endpoint": "/api/chat_stream",
                         "sources_count": len(retrieved_chunks),
                         "products_count": len(products or []),
+                "products": products or [],
                         "rewritten_query": search_query,
                         "enriched_query": enriched_query,
                     },
@@ -1589,7 +1587,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             metadata={"endpoint": "/api/chat_tools"},
         )
     except Exception as e:
-        logger.warning("[chat_db] insert user message failed (/api/chat_tools_stream): %s: %s", type(e).__name__, e)
+        logger.warning("[chat_db] insert user message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
 
     langfuse = _get_langfuse_client()
     span = None
@@ -1739,10 +1737,11 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
                 "endpoint": "/api/chat_tools",
                 "sources_count": len(sources),
                 "products_count": len(products or []),
+                "products": products or [],
             },
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert assistant message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
     return ChatResponse(
         conversation_id=conversation_id,
         answer=answer,
@@ -1777,8 +1776,8 @@ def chat_tools_stream(req: ChatRequest):
             content=query,
             metadata={"endpoint": "/api/chat_tools_stream"},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert user message failed (/api/chat_tools_stream): %s: %s", type(e).__name__, e)
 
     # --- Langfuse: create the span OUTSIDE the generator so input is logged
     # even if the generator crashes before producing its first event. ---
@@ -1949,6 +1948,7 @@ def chat_tools_stream(req: ChatRequest):
                                 "endpoint": "/api/chat_tools_stream",
                                 "sources_count": len(sources_out),
                                 "products_count": len(products or []),
+                                "products": products or [],
                             },
                         )
                     except Exception as e:
