@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
 import sys
 import time
 import uuid
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -72,13 +73,21 @@ class ChatResponse(BaseModel):
     products: list[dict[str, Any]] = []
 
 
-@app.on_event("startup")
-def _init_chat_db() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup logic
+    _log_langfuse_status_once()
+    
     # Best-effort: enabled only when CHAT_DATABASE_URL is set.
     try:
         init_chat_schema()
     except Exception as e:
         logger.warning("[chat_db] init failed: %s: %s", type(e).__name__, e)
+    
+    yield
+
+
+app = FastAPI(title="Gloriapets RAG API", lifespan=lifespan)
 
 
 @lru_cache(maxsize=1)
@@ -290,9 +299,6 @@ def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[
         pass
 
 
-@app.on_event("startup")
-def _on_startup() -> None:
-    _log_langfuse_status_once()
 
 
 _SKU_PATTERN = r"\b[A-Z]{2,}[A-Z0-9/*.-]{1,}\b"

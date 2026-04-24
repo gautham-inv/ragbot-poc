@@ -26,36 +26,46 @@ def init_chat_schema() -> None:
     in the current container setup.
     """
     if not _enabled():
+        print("[chat_db] skipping init: CHAT_DATABASE_URL not set.")
         return
 
     url = _db_url()
     assert url is not None
+    # Log the destination host for visibility in logs
+    host = url.split("@")[-1] if "@" in url else "unknown"
+    print(f"[chat_db] initializing schema at {host}...")
 
-    with psycopg.connect(url) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chat_conversations (
-              id uuid PRIMARY KEY,
-              created_at timestamptz NOT NULL DEFAULT now(),
-              updated_at timestamptz NOT NULL DEFAULT now()
-            );
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chat_messages (
-              id bigserial PRIMARY KEY,
-              conversation_id uuid NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
-              role text NOT NULL,
-              content text NOT NULL,
-              metadata jsonb NULL,
-              created_at timestamptz NOT NULL DEFAULT now()
-            );
-            """
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS chat_messages_conversation_id_created_at_idx ON chat_messages (conversation_id, created_at);"
-        )
+    try:
+        with psycopg.connect(url) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_conversations (
+                  id uuid PRIMARY KEY,
+                  created_at timestamptz NOT NULL DEFAULT now(),
+                  updated_at timestamptz NOT NULL DEFAULT now()
+                );
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                  id bigserial PRIMARY KEY,
+                  conversation_id uuid NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+                  role text NOT NULL,
+                  content text NOT NULL,
+                  metadata jsonb NULL,
+                  created_at timestamptz NOT NULL DEFAULT now()
+                );
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS chat_messages_conversation_id_created_at_idx ON chat_messages (conversation_id, created_at);"
+            )
+        print("[chat_db] schema initialized successfully.")
+    except Exception as e:
+        print(f"[chat_db] schema init failed: {e}")
+        # We re-raise so the startup event can log it as a warning/error
+        raise e
 
 
 def ensure_conversation_id(conversation_id: str | None) -> str:
