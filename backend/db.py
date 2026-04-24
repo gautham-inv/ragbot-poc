@@ -36,7 +36,8 @@ def init_chat_schema() -> None:
     print(f"[chat_db] initializing schema at {host}...")
 
     try:
-        with psycopg.connect(url) as conn:
+        # We use autocommit=True to ensure each DDL statement is committed immediately.
+        with psycopg.connect(url, autocommit=True) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -61,6 +62,16 @@ def init_chat_schema() -> None:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS chat_messages_conversation_id_created_at_idx ON chat_messages (conversation_id, created_at);"
             )
+
+            # Immediate verification
+            res = conn.execute(
+                "SELECT table_schema, table_name FROM information_schema.tables WHERE table_name = 'chat_conversations'"
+            ).fetchone()
+            if res:
+                print(f"[chat_db] verification: table '{res[1]}' confirmed in schema '{res[0]}'.")
+            else:
+                print("[chat_db] verification FAILED: table 'chat_conversations' not found immediately after creation.")
+
         print("[chat_db] schema initialized successfully.")
     except Exception as e:
         print(f"[chat_db] schema init failed: {e}")
