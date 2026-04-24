@@ -18,6 +18,9 @@ def _enabled() -> bool:
     return bool(_db_url())
 
 
+_chat_schema_ready = False
+
+
 def init_chat_schema() -> None:
     """
     Best-effort schema initialization.
@@ -25,6 +28,8 @@ def init_chat_schema() -> None:
     We avoid migrations for now: CREATE TABLE IF NOT EXISTS keeps this deployable
     in the current container setup.
     """
+    global _chat_schema_ready
+
     if not _enabled():
         print("[chat_db] skipping init: CHAT_DATABASE_URL not set.")
         return
@@ -73,10 +78,23 @@ def init_chat_schema() -> None:
                 print("[chat_db] verification FAILED: table 'chat_conversations' not found immediately after creation.")
 
         print("[chat_db] schema initialized successfully.")
+        _chat_schema_ready = True
     except Exception as e:
         print(f"[chat_db] schema init failed: {e}")
         # We re-raise so the startup event can log it as a warning/error
         raise e
+
+
+def _ensure_chat_schema_once() -> None:
+    """
+    Ensure chat schema exists. Safe to call before DB operations.
+    """
+    if not _enabled():
+        return
+    global _chat_schema_ready
+    if _chat_schema_ready:
+        return
+    init_chat_schema()
 
 
 def ensure_conversation_id(conversation_id: str | None) -> str:
@@ -112,24 +130,42 @@ def insert_message(
     """
     if not _enabled():
         return
+    _ensure_chat_schema_once()
 
     url = _db_url()
     assert url is not None
 
     meta_json = json.dumps(metadata, ensure_ascii=False, default=str) if metadata else None
-    with psycopg.connect(url) as conn:
-        _ensure_conversation_row(conn, conversation_id)
-        conn.execute(
-            """
-            INSERT INTO chat_messages (conversation_id, role, content, metadata)
-            VALUES (%s, %s, %s, %s::jsonb);
-            """,
-            (conversation_id, role, content or "", meta_json),
-        )
-        conn.execute(
-            "UPDATE chat_conversations SET updated_at = now() WHERE id = %s;",
-            (conversation_id,),
-        )
+    try:
+        with psycopg.connect(url) as conn:
+            _ensure_conversation_row(conn, conversation_id)
+            conn.execute(
+                """
+                INSERT INTO chat_messages (conversation_id, role, content, metadata)
+                VALUES (%s, %s, %s, %s::jsonb);
+                """,
+                (conversation_id, role, content or "", meta_json),
+            )
+            conn.execute(
+                "UPDATE chat_conversations SET updated_at = now() WHERE id = %s;",
+                (conversation_id,),
+            )
+    except psycopg.errors.UndefinedTable:
+        # Self-heal once if tables are unexpectedly missing (e.g. external schema resets).
+        init_chat_schema()
+        with psycopg.connect(url) as conn:
+            _ensure_conversation_row(conn, conversation_id)
+            conn.execute(
+                """
+                INSERT INTO chat_messages (conversation_id, role, content, metadata)
+                VALUES (%s, %s, %s, %s::jsonb);
+                """,
+                (conversation_id, role, content or "", meta_json),
+            )
+            conn.execute(
+                "UPDATE chat_conversations SET updated_at = now() WHERE id = %s;",
+                (conversation_id,),
+            )
 
 
 def list_conversations(*, limit: int = 50) -> list[dict[str, Any]]:
@@ -138,36 +174,65 @@ def list_conversations(*, limit: int = 50) -> list[dict[str, Any]]:
     """
     if not _enabled():
         return []
+    _ensure_chat_schema_once()
 
     url = _db_url()
     assert url is not None
 
     safe_limit = max(1, min(int(limit), 200))
-    with psycopg.connect(url) as conn:
-        rows = conn.execute(
-            """
-            SELECT
-              c.id::text AS id,
-              c.created_at,
-              c.updated_at,
-              (
-                SELECT m.content
-                FROM chat_messages m
-                WHERE m.conversation_id = c.id AND m.role = 'user'
-                ORDER BY m.created_at ASC, m.id ASC
-                LIMIT 1
-              ) AS first_user_message,
-              (
-                SELECT count(*)
-                FROM chat_messages m2
-                WHERE m2.conversation_id = c.id
-              )::int AS message_count
-            FROM chat_conversations c
-            ORDER BY c.updated_at DESC
-            LIMIT %s;
-            """,
-            (safe_limit,),
-        ).fetchall()
+    try:
+        with psycopg.connect(url) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  c.id::text AS id,
+                  c.created_at,
+                  c.updated_at,
+                  (
+                    SELECT m.content
+                    FROM chat_messages m
+                    WHERE m.conversation_id = c.id AND m.role = 'user'
+                    ORDER BY m.created_at ASC, m.id ASC
+                    LIMIT 1
+                  ) AS first_user_message,
+                  (
+                    SELECT count(*)
+                    FROM chat_messages m2
+                    WHERE m2.conversation_id = c.id
+                  )::int AS message_count
+                FROM chat_conversations c
+                ORDER BY c.updated_at DESC
+                LIMIT %s;
+                """,
+                (safe_limit,),
+            ).fetchall()
+    except psycopg.errors.UndefinedTable:
+        init_chat_schema()
+        with psycopg.connect(url) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                  c.id::text AS id,
+                  c.created_at,
+                  c.updated_at,
+                  (
+                    SELECT m.content
+                    FROM chat_messages m
+                    WHERE m.conversation_id = c.id AND m.role = 'user'
+                    ORDER BY m.created_at ASC, m.id ASC
+                    LIMIT 1
+                  ) AS first_user_message,
+                  (
+                    SELECT count(*)
+                    FROM chat_messages m2
+                    WHERE m2.conversation_id = c.id
+                  )::int AS message_count
+                FROM chat_conversations c
+                ORDER BY c.updated_at DESC
+                LIMIT %s;
+                """,
+                (safe_limit,),
+            ).fetchall()
 
     out: list[dict[str, Any]] = []
     for r in rows:
@@ -189,20 +254,34 @@ def get_conversation_messages(conversation_id: str) -> list[dict[str, Any]]:
     """
     if not _enabled():
         return []
+    _ensure_chat_schema_once()
 
     url = _db_url()
     assert url is not None
 
-    with psycopg.connect(url) as conn:
-        rows = conn.execute(
-            """
-            SELECT id, role, content, metadata, created_at
-            FROM chat_messages
-            WHERE conversation_id = %s
-            ORDER BY created_at ASC, id ASC;
-            """,
-            (conversation_id,),
-        ).fetchall()
+    try:
+        with psycopg.connect(url) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, role, content, metadata, created_at
+                FROM chat_messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC, id ASC;
+                """,
+                (conversation_id,),
+            ).fetchall()
+    except psycopg.errors.UndefinedTable:
+        init_chat_schema()
+        with psycopg.connect(url) as conn:
+            rows = conn.execute(
+                """
+                SELECT id, role, content, metadata, created_at
+                FROM chat_messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC, id ASC;
+                """,
+                (conversation_id,),
+            ).fetchall()
 
     out: list[dict[str, Any]] = []
     for r in rows:
