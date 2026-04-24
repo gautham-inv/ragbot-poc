@@ -34,7 +34,13 @@ from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
 from backend.tools import build_tool_system_prompt, render_compare_products_markdown, run_tool_loop, run_tool_loop_stream
-from backend.db import ensure_conversation_id, init_chat_schema, insert_message
+from backend.db import (
+    ensure_conversation_id,
+    get_conversation_messages,
+    init_chat_schema,
+    insert_message,
+    list_conversations,
+)
 
 load_project_env()
 
@@ -71,6 +77,27 @@ class ChatResponse(BaseModel):
     # Compact product cards derived from retrieved SKUs (deduped, with image URLs
     # attached from data/sku_image_map.json). Empty list if no products match.
     products: list[dict[str, Any]] = []
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    first_user_message: str | None = None
+    message_count: int = 0
+
+
+class ConversationMessage(BaseModel):
+    id: int
+    role: str
+    content: str
+    metadata: dict[str, Any] | None = None
+    created_at: str | None = None
+
+
+class ConversationDetail(BaseModel):
+    conversation_id: str
+    messages: list[ConversationMessage]
 
 
 @asynccontextmanager
@@ -286,8 +313,8 @@ def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[
         if callable(fn):
             fn(trace_id=trace_id, tags=deduped)
             return
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert user message failed (/api/chat): %s: %s", type(e).__name__, e)
 
     # Fallback: best-effort propagation (no-op if tracing context isn't active).
     try:
@@ -295,8 +322,8 @@ def _langfuse_add_trace_tags(langfuse: Any, *, trace_id: str | None, tags: list[
 
         with propagate_attributes(tags=deduped):
             pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert assistant message failed (/api/chat): %s: %s", type(e).__name__, e)
 
 
 
@@ -484,8 +511,8 @@ def _langfuse_score_sku_counts(span: Any, *, query: str, answer: str, skus: list
 
     try:
         score_fn(name="sku_query_count__TOTAL", value=float(total_query), data_type="NUMERIC")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert user message failed (/api/chat_stream): %s: %s", type(e).__name__, e)
     try:
         score_fn(name="sku_answer_count__TOTAL", value=float(total_answer), data_type="NUMERIC")
     except Exception:
@@ -859,6 +886,38 @@ def warmup() -> dict[str, Any]:
     }
 
 
+@app.get("/api/conversations", response_model=list[ConversationSummary])
+def api_list_conversations(limit: int = 50) -> list[ConversationSummary]:
+    try:
+        rows = list_conversations(limit=limit)
+        return [ConversationSummary(**row) for row in rows]
+    except Exception as e:
+        logger.exception("failed to list conversations: %s", e)
+        raise HTTPException(status_code=500, detail="failed to list conversations")
+
+
+@app.get("/api/conversations/{conversation_id}", response_model=ConversationDetail)
+def api_get_conversation(conversation_id: str) -> ConversationDetail:
+    try:
+        uuid.UUID(conversation_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid conversation_id")
+
+    try:
+        rows = get_conversation_messages(conversation_id)
+    except Exception as e:
+        logger.exception("failed to load conversation %s: %s", conversation_id, e)
+        raise HTTPException(status_code=500, detail="failed to load conversation")
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="conversation not found")
+
+    return ConversationDetail(
+        conversation_id=conversation_id,
+        messages=[ConversationMessage(**row) for row in rows],
+    )
+
+
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
     query = req.query.strip()
@@ -944,8 +1003,12 @@ def chat(req: ChatRequest) -> ChatResponse:
                         "sku_counts_in_user_query": _sku_counts_in_text(query, skus_in_user_query),
                     }
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "[chat_db] insert assistant message failed (/api/chat_stream): %s: %s",
+                    type(e).__name__,
+                    e,
+                )
 
         t0 = time.perf_counter()
         vec = qdrant_search(
@@ -1133,8 +1196,8 @@ def chat(req: ChatRequest) -> ChatResponse:
                 "enriched_query": enriched_query,
             },
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert user message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
     return ChatResponse(
         conversation_id=conversation_id,
         answer=answer,
@@ -1159,8 +1222,8 @@ def chat_stream(req: ChatRequest):
             content=query,
             metadata={"endpoint": "/api/chat_stream"},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert assistant message failed (/api/chat_tools): %s: %s", type(e).__name__, e)
 
     rid = uuid.uuid4().hex[:8]
     t_req = time.perf_counter()
@@ -1525,8 +1588,8 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             content=query,
             metadata={"endpoint": "/api/chat_tools"},
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("[chat_db] insert user message failed (/api/chat_tools_stream): %s: %s", type(e).__name__, e)
 
     langfuse = _get_langfuse_client()
     span = None
@@ -1888,8 +1951,12 @@ def chat_tools_stream(req: ChatRequest):
                                 "products_count": len(products or []),
                             },
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(
+                            "[chat_db] insert assistant message failed (/api/chat_tools_stream): %s: %s",
+                            type(e).__name__,
+                            e,
+                        )
                     yield _sse({
                         "type": "done",
                         "conversation_id": conversation_id,

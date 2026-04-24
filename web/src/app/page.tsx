@@ -39,6 +39,14 @@ type Message = {
   products?: ProductCard[];
 };
 
+type ConversationSummary = {
+  id: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+  first_user_message?: string | null;
+  message_count?: number;
+};
+
 function newId(prefix: string) {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -200,6 +208,8 @@ function getSseData(rawEvent: string) {
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [conversationHistory, setConversationHistory] = useState<ConversationSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
@@ -222,6 +232,49 @@ export default function Home() {
   const toolRef = useRef<string | null>(null);
   const loadingTextTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoadingTextRef = useRef<string | null>(null);
+  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+  async function refreshConversationHistory() {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/conversations?limit=50`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setConversationHistory(data as ConversationSummary[]);
+      }
+    } catch {
+      // ignore; sidebar history is best effort
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function loadConversation(conversationIdToLoad: string) {
+    if (!conversationIdToLoad || loading) return;
+    setLoading(true);
+    setLoadingStatus("Loading conversation...");
+    try {
+      const res = await fetch(`${baseUrl}/api/conversations/${conversationIdToLoad}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const rawMessages = Array.isArray(data?.messages) ? data.messages : [];
+      const restored: Message[] = rawMessages
+        .filter((m: any) => m && (m.role === "user" || m.role === "assistant"))
+        .map((m: any) => ({
+          id: `db-${String(m.id)}`,
+          role: m.role,
+          content: typeof m.content === "string" ? m.content : "",
+        }));
+      setMessages(restored);
+      setConversationId(conversationIdToLoad);
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+      setLoadingStatus(null);
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -241,6 +294,11 @@ export default function Home() {
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
+  }, []);
+
+  useEffect(() => {
+    refreshConversationHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function formatTime(seconds: number) {
@@ -353,8 +411,6 @@ export default function Home() {
     setStreaming(false);
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
       async function consumeSse(res: Response) {
         if (!res.ok || !res.body) return false;
 
@@ -435,7 +491,10 @@ export default function Home() {
             }
 
             if (evt.type === "done") {
-              if (evt.conversation_id) setConversationId(evt.conversation_id);
+              if (evt.conversation_id) {
+                setConversationId(evt.conversation_id);
+                refreshConversationHistory();
+              }
               updateAssistantMessage(assistantId, (m) => ({
                 ...m,
                 content: evt.answer ?? m.content,
@@ -491,7 +550,10 @@ export default function Home() {
 
       if (toolRes.ok) {
         const data = await toolRes.json();
-        if (typeof (data as any)?.conversation_id === "string") setConversationId((data as any).conversation_id);
+        if (typeof (data as any)?.conversation_id === "string") {
+          setConversationId((data as any).conversation_id);
+          refreshConversationHistory();
+        }
         const answer = typeof data?.answer === "string" ? data.answer : "No response.";
         const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
         const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
@@ -530,7 +592,10 @@ export default function Home() {
         body: JSON.stringify({ query: text, history: historyForBackend, conversation_id: conversationId })
       });
       const data = await fallback.json();
-      if (typeof (data as any)?.conversation_id === "string") setConversationId((data as any).conversation_id);
+      if (typeof (data as any)?.conversation_id === "string") {
+        setConversationId((data as any).conversation_id);
+        refreshConversationHistory();
+      }
       const answer = typeof data?.answer === "string" ? data.answer : "No response.";
       const sources = Array.isArray(data?.sources) ? (data.sources as SourceChunk[]) : [];
       const products = Array.isArray(data?.products) ? (data.products as ProductCard[]) : [];
@@ -591,7 +656,6 @@ export default function Home() {
           const form = new FormData();
           form.append("file", blob, "audio.webm");
 
-          const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
           const res = await fetch(`${baseUrl}/api/transcribe`, { method: "POST", body: form });
           const data = await res.json();
           const text = typeof data?.text === "string" ? data.text.trim() : "";
@@ -658,9 +722,43 @@ export default function Home() {
           </span>
           Gloria Pets Catalog Bot
         </div>
-        <button onClick={() => { setMessages([]); setConversationId(null); }} className="rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white">
+        <button
+          onClick={() => {
+            setMessages([]);
+            setConversationId(null);
+          }}
+          className="rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white"
+        >
           New chat +
         </button>
+        <div className="space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">Recent conversations</div>
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2">
+            {historyLoading && <div className="px-2 py-1 text-xs text-slate-500">Loading...</div>}
+            {!historyLoading && conversationHistory.length === 0 && (
+              <div className="px-2 py-1 text-xs text-slate-500">No conversations yet.</div>
+            )}
+            {conversationHistory.map((c) => {
+              const title = (c.first_user_message || "Untitled conversation").trim();
+              const active = conversationId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => loadConversation(c.id)}
+                  className={`w-full rounded-md px-2 py-2 text-left text-xs ${
+                    active
+                      ? "bg-brand-100 text-brand-800"
+                      : "bg-white text-slate-700 hover:bg-slate-100"
+                  }`}
+                  title={title}
+                >
+                  <div className="truncate font-medium">{title}</div>
+                  <div className="mt-0.5 text-[10px] text-slate-500">{c.message_count || 0} messages</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
         <div className="space-y-2 pt-2 text-xs text-slate-500">
           <div className="font-semibold uppercase tracking-wide text-slate-400">Actions</div>
           <button
@@ -674,6 +772,12 @@ export default function Home() {
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:border-brand-300"
           >
             Clear chat
+          </button>
+          <button
+            onClick={() => refreshConversationHistory()}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:border-brand-300"
+          >
+            Refresh history
           </button>
         </div>
       </aside>

@@ -131,3 +131,89 @@ def insert_message(
             (conversation_id,),
         )
 
+
+def list_conversations(*, limit: int = 50) -> list[dict[str, Any]]:
+    """
+    Return recent conversations with lightweight preview fields.
+    """
+    if not _enabled():
+        return []
+
+    url = _db_url()
+    assert url is not None
+
+    safe_limit = max(1, min(int(limit), 200))
+    with psycopg.connect(url) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+              c.id::text AS id,
+              c.created_at,
+              c.updated_at,
+              (
+                SELECT m.content
+                FROM chat_messages m
+                WHERE m.conversation_id = c.id AND m.role = 'user'
+                ORDER BY m.created_at ASC, m.id ASC
+                LIMIT 1
+              ) AS first_user_message,
+              (
+                SELECT count(*)
+                FROM chat_messages m2
+                WHERE m2.conversation_id = c.id
+              )::int AS message_count
+            FROM chat_conversations c
+            ORDER BY c.updated_at DESC
+            LIMIT %s;
+            """,
+            (safe_limit,),
+        ).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": str(r[0]),
+                "created_at": r[1].isoformat() if r[1] is not None else None,
+                "updated_at": r[2].isoformat() if r[2] is not None else None,
+                "first_user_message": str(r[3]) if r[3] is not None else None,
+                "message_count": int(r[4] or 0),
+            }
+        )
+    return out
+
+
+def get_conversation_messages(conversation_id: str) -> list[dict[str, Any]]:
+    """
+    Return all messages for a conversation in chronological order.
+    """
+    if not _enabled():
+        return []
+
+    url = _db_url()
+    assert url is not None
+
+    with psycopg.connect(url) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, role, content, metadata, created_at
+            FROM chat_messages
+            WHERE conversation_id = %s
+            ORDER BY created_at ASC, id ASC;
+            """,
+            (conversation_id,),
+        ).fetchall()
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": int(r[0]),
+                "role": str(r[1]),
+                "content": str(r[2] or ""),
+                "metadata": r[3] if isinstance(r[3], dict) else None,
+                "created_at": r[4].isoformat() if r[4] is not None else None,
+            }
+        )
+    return out
+
