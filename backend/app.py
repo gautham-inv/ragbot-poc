@@ -1186,6 +1186,7 @@ def chat(req: ChatRequest) -> ChatResponse:
             content=answer,
             metadata={
                 "endpoint": "/api/chat",
+                "sources": retrieved_chunks or [],
                 "sources_count": len(retrieved_chunks),
                 "products_count": len(products or []),
                 "products": products or [],
@@ -1505,9 +1506,10 @@ def chat_stream(req: ChatRequest):
                     content=full,
                     metadata={
                         "endpoint": "/api/chat_stream",
+                        "sources": retrieved_chunks or [],
                         "sources_count": len(retrieved_chunks),
                         "products_count": len(products or []),
-                "products": products or [],
+                        "products": products or [],
                         "rewritten_query": search_query,
                         "enriched_query": enriched_query,
                     },
@@ -1735,7 +1737,9 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             content=answer,
             metadata={
                 "endpoint": "/api/chat_tools",
+                "sources": sources or [],
                 "sources_count": len(sources),
+                "sources_total": sources_total,
                 "products_count": len(products or []),
                 "products": products or [],
             },
@@ -1946,7 +1950,9 @@ def chat_tools_stream(req: ChatRequest):
                             content=answer,
                             metadata={
                                 "endpoint": "/api/chat_tools_stream",
+                                "sources": sources_out or [],
                                 "sources_count": len(sources_out),
+                                "sources_total": sources_total,
                                 "products_count": len(products or []),
                                 "products": products or [],
                             },

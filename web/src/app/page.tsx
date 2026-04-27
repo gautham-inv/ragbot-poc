@@ -264,11 +264,15 @@ export default function Home() {
         .map((m: any) => {
           const md = (m && typeof m.metadata === "object" && m.metadata) || {};
           const products = Array.isArray((md as any).products) ? ((md as any).products as ProductCard[]) : undefined;
+          const sources = Array.isArray((md as any).sources) ? ((md as any).sources as SourceChunk[]) : undefined;
+          const sources_total = typeof (md as any).sources_total === "number" ? (md as any).sources_total : undefined;
           return {
             id: `db-${String(m.id)}`,
             role: m.role,
             content: typeof m.content === "string" ? m.content : "",
             products: m.role === "assistant" ? products : undefined,
+            sources: m.role === "assistant" ? sources : undefined,
+            sources_total: m.role === "assistant" ? sources_total : undefined,
           } as Message;
         });
       setMessages(restored);
