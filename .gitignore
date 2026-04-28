@@ -6,6 +6,10 @@ __pycache__/
 data/raw/
 data/ingested/
 data/index/
+
+# Derivable extraction/correction snapshots (regenerable from xlsx + corrections.jsonl)
+data/products_extracted.jsonl
+data/products_corrected.jsonl
 *.pkl
 node_modules/
 .next/

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -n '250,499p' data/products_extracted.jsonl)",
+      "Read(//tmp/**)"
+    ]
+  }
+}
