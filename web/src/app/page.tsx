@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type SourceChunk = {
   chunk_id?: string;
@@ -1049,7 +1049,10 @@ export default function Home() {
                                 const subcategory = meta.subcategory;
                                 const priceEur = meta.price_eur ?? meta.price_pvpr;
                                 const chunkType = meta.chunk_type;
-                                const parts: string[] = [];
+                                const catalogUrl =
+                                  process.env.NEXT_PUBLIC_CATALOG_URL || "/catalog.pdf";
+
+                                const parts: ReactNode[] = [];
                                 if (typeof brand === "string" && brand) parts.push(String(brand));
                                 if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
                                 if (typeof category === "string" && category) {
@@ -1059,14 +1062,35 @@ export default function Home() {
                                   parts.push(cat);
                                 }
                                 if (typeof priceEur === "number") parts.push(`${priceEur}€`);
-                                if (typeof physical !== "undefined") parts.push(`Page ${String(physical)}`);
+                                if (typeof physical !== "undefined") {
+                                  const pageNum = String(physical);
+                                  parts.push(
+                                    <a
+                                      href={`${catalogUrl}#page=${encodeURIComponent(pageNum)}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-brand-700 underline-offset-2 hover:underline"
+                                      title="Open this page in the catalog PDF"
+                                    >
+                                      Page {pageNum}
+                                    </a>
+                                  );
+                                }
                                 if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
                                 if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
 
                                 return (
                                   <div key={s.chunk_id ?? `${m.id}-${sIdx}`} className="rounded-md bg-white px-3 py-2">
                                     <div className="text-[11px] font-semibold text-slate-700">
-                                      {parts.length ? parts.join(" - ") : "Source"}
+                                      {parts.length
+                                        ? parts.map((p, i) => (
+                                            <span key={i}>
+                                              {i > 0 && " - "}
+                                              {p}
+                                            </span>
+                                          ))
+                                        : "Source"}
                                     </div>
                                     {s.text && <div className="mt-1 text-[11px] text-slate-600">{s.text}</div>}
                                   </div>
