@@ -57,7 +57,7 @@ CATEGORY_ENUM = [
     "toys", "housing", "healthcare", "apparel", "equipment",
 ]
 
-SPECIES_ENUM = ["dog", "cat"]
+SPECIES_ENUM = ["dog", "cat", "bird", "horse", "reptile", "rabbit", "ferret", "rodent"]
 
 GROUP_BY_ENUM = ["brand", "category", "subcategory", "species", "change_flag"]
 
@@ -694,7 +694,7 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "## PERMISSIBLE FILTER VALUES\n"
         "- brand: " + ", ".join(BRAND_ENUM) + "\n"
         "- category: " + ", ".join(CATEGORY_ENUM) + "\n"
-        "- species: dog, cat\n"
+        "- species: " + ", ".join(SPECIES_ENUM) + "\n"
         "- group_by (for count_products): " + ", ".join(GROUP_BY_ENUM) + "\n"
     )
 
