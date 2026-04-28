@@ -20,8 +20,6 @@ type ProductCard = {
   price_pvpr?: number | null;
   price_per_unit?: number | null;
   min_purchase_qty?: number | null;
-  primary_image?: string;
-  thumbnail?: string;
   images?: string[];
   thumbnails?: string[];
   catalog_pages?: number[] | null;
@@ -104,19 +102,21 @@ function formatEur(n: number | null | undefined) {
   return `€${Number(n).toFixed(2)}`;
 }
 
-function ProductCards({ items }: { items: ProductCard[] }) {
+function ProductCards({ items, onOpen }: { items: ProductCard[]; onOpen: (sku: string) => void }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="mt-3 -mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto px-1 pb-2">
       {items.map((p) => {
-        const img = p.thumbnail || p.primary_image || (p.thumbnails && p.thumbnails[0]) || (p.images && p.images[0]) || "";
+        const img = (p.thumbnails && p.thumbnails[0]) || (p.images && p.images[0]) || "";
         const title = p.name || p.sku;
         const priceLabel = formatEur(p.price_pvpr ?? p.price_per_unit ?? null);
         const catLine = [p.brand, p.category, p.subcategory].filter(Boolean).join(" · ");
         return (
-          <div
+          <button
+            type="button"
+            onClick={() => onOpen(p.sku)}
             key={p.sku}
-            className="flex h-72 w-44 flex-none snap-start flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+            className="flex h-72 w-44 flex-none snap-start flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition-colors hover:bg-slate-50"
             title={title}
           >
             <div className="h-40 w-full flex-none bg-slate-50">
@@ -147,9 +147,127 @@ function ProductCards({ items }: { items: ProductCard[] }) {
                 <div className="text-[10.5px] text-slate-500">Min. pedido: {p.min_purchase_qty} uds</div>
               )}
             </div>
-          </div>
+          </button>
         );
       })}
+    </div>
+  );
+}
+
+function ProductCarouselModal({
+  product,
+  onClose,
+}: {
+  product: ProductCard;
+  onClose: () => void;
+}) {
+  const images = Array.isArray(product.images) ? product.images.filter(Boolean) : [];
+  const thumbs = Array.isArray(product.thumbnails) ? product.thumbnails.filter(Boolean) : [];
+  const [idx, setIdx] = useState(0);
+
+  useEffect(() => {
+    setIdx(0);
+  }, [product.sku]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setIdx((v) => Math.max(0, v - 1));
+      if (e.key === "ArrowRight") setIdx((v) => Math.min(images.length - 1, v + 1));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [images.length, onClose]);
+
+  const title = product.name || product.sku;
+  const canPrev = idx > 0;
+  const canNext = idx < images.length - 1;
+  const current = images[idx] || images[0] || "";
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60"
+      />
+      <div className="absolute left-1/2 top-1/2 w-[min(960px,calc(100vw-24px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+            <div className="truncate text-xs text-slate-500">
+              {[product.brand, product.category, product.subcategory].filter(Boolean).join(" · ")}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-sm text-slate-600 hover:bg-slate-100"
+            title="Close"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="relative bg-slate-50">
+          <div className="aspect-[16/9] w-full">
+            {current ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={current} alt={title} className="h-full w-full object-contain" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">No image</div>
+            )}
+          </div>
+
+          <div className="absolute left-3 top-1/2 -translate-y-1/2">
+            <button
+              type="button"
+              onClick={() => setIdx((v) => Math.max(0, v - 1))}
+              disabled={!canPrev}
+              className="h-10 w-10 rounded-full bg-white/90 text-slate-700 shadow disabled:opacity-40"
+              title="Previous"
+            >
+              ‹
+            </button>
+          </div>
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <button
+              type="button"
+              onClick={() => setIdx((v) => Math.min(images.length - 1, v + 1))}
+              disabled={!canNext}
+              className="h-10 w-10 rounded-full bg-white/90 text-slate-700 shadow disabled:opacity-40"
+              title="Next"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+
+        {(thumbs.length > 1 || images.length > 1) && (
+          <div className="flex gap-2 overflow-x-auto border-t border-slate-200 bg-white px-3 py-3">
+            {images.map((url, i) => {
+              const t = thumbs[i] || url;
+              const active = i === idx;
+              return (
+                <button
+                  key={`${product.sku}-${i}`}
+                  type="button"
+                  onClick={() => setIdx(i)}
+                  className={
+                    "h-14 w-14 flex-none overflow-hidden rounded-md border " +
+                    (active ? "border-slate-900" : "border-slate-200 hover:border-slate-400")
+                  }
+                  title={`Image ${i + 1}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={t} alt={`Thumb ${i + 1}`} className="h-full w-full object-cover" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -207,6 +325,7 @@ function getSseData(rawEvent: string) {
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [openProductSku, setOpenProductSku] = useState<string | null>(null);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<ConversationSummary[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -634,6 +753,18 @@ export default function Home() {
     }
   }
 
+  const openProduct: ProductCard | null = (() => {
+    if (!openProductSku) return null;
+    // Search most-recent messages first so we open the freshest card data.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "assistant" || !Array.isArray(msg.products)) continue;
+      const found = msg.products.find((p) => p && p.sku === openProductSku);
+      if (found) return found;
+    }
+    return null;
+  })();
+
   async function toggleRecording() {
     if (voiceMode === "processing") return;
 
@@ -724,6 +855,9 @@ export default function Home() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-900">
+      {openProduct && (
+        <ProductCarouselModal product={openProduct} onClose={() => setOpenProductSku(null)} />
+      )}
       <aside className="sticky top-0 hidden h-screen w-72 flex-col gap-4 overflow-hidden border-r border-slate-200 bg-white p-6 md:flex">
         <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
           <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-50 text-brand-600">
@@ -735,6 +869,7 @@ export default function Home() {
           onClick={() => {
             setMessages([]);
             setConversationId(null);
+            setOpenProductSku(null);
           }}
           className="rounded-xl bg-brand-600 px-4 py-3 text-sm font-semibold text-white"
         >
@@ -777,7 +912,7 @@ export default function Home() {
             Warm up
           </button>
           <button
-            onClick={() => { setMessages([]); setConversationId(null); }}
+            onClick={() => { setMessages([]); setConversationId(null); setOpenProductSku(null); }}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left text-xs text-slate-600 hover:border-brand-300"
           >
             Clear chat
@@ -885,7 +1020,7 @@ export default function Home() {
                       )}
 
                       {m.role === "assistant" && m.products && m.products.length > 0 && (
-                        <ProductCards items={m.products} />
+                        <ProductCards items={m.products} onOpen={(sku) => setOpenProductSku(sku)} />
                       )}
 
                       {m.role === "assistant" && m.sources && m.sources.length > 0 && (

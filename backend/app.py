@@ -783,16 +783,16 @@ def _products_from_sources(
             "price_pvpr": meta.get("price_pvpr") or meta.get("price_eur"),
             "price_per_unit": meta.get("price_per_unit"),
             "min_purchase_qty": meta.get("min_purchase_qty") or meta.get("min_order"),
-            "primary_image": primary,
-            "thumbnail": thumbnail,
-            "images": images,
-            "thumbnails": thumbnails,
+            # Single source of truth for images: arrays (for carousel UI).
+            # If the tool payload only has primary/thumbnail, fall back to 1-item arrays.
+            "images": images or ([primary] if primary else []),
+            "thumbnails": thumbnails or ([thumbnail] if thumbnail else []),
             "catalog_pages": meta.get("catalog_pages"),
             "primary_page": meta.get("primary_page"),
         }
         # Only include cards that actually have at least one image — otherwise
         # the frontend has nothing useful to show.
-        if not (card["primary_image"] or card["images"]):
+        if not (isinstance(card.get("images"), list) and len(card["images"]) > 0):
             continue
 
         seen_skus.add(sku)
@@ -807,6 +807,8 @@ def _normalize_source(payload: dict[str, Any], *, score: float) -> dict[str, Any
     meta = _source_meta(payload)
     chunk_id = _source_chunk_id(payload) or ""
     text = payload.get("text") or ""
+    # Avoid duplicating large fields between `text` and `metadata`.
+    meta.pop("text", None)
     # Keep qdrant ids / debug fields in metadata so the UI can show them if desired.
     for k in ("qdrant_point_id",):
         if k in payload and k not in meta:
@@ -817,6 +819,57 @@ def _normalize_source(payload: dict[str, Any], *, score: float) -> dict[str, Any
         "metadata": meta,
         "score": round(float(score), 6),
     }
+
+
+def _compact_tool_source_metadata(p: dict[str, Any]) -> dict[str, Any]:
+    """
+    Tool results often include a full product payload (including duplicated `text`,
+    image arrays, and many nulls). For SSE + chat history we keep only the fields
+    the UI actually reads.
+    """
+    if not isinstance(p, dict):
+        return {}
+
+    keep_keys = {
+        # Identity / routing
+        "id",
+        "chunk_id",
+        "chunk_type",
+        "brand",
+        "sku",
+        "ean",
+        "name_es",
+        "name",
+        "product_name",
+        "category",
+        "subcategory",
+        "species",
+        "change_flag",
+        # Pricing / ordering
+        "price_pvpr",
+        "price_eur",
+        "price_per_unit",
+        "min_purchase_qty",
+        "min_order",
+        "price_total_min_order",
+        "effective_unit_price",
+        "has_price",
+        # Page cross-ref (Excel indexing path)
+        "catalog_pages",
+        "primary_page",
+        # Page fields (OCR indexing path)
+        "physical_page_number",
+        "page_number",
+        # Images (arrays are used by the UI carousel; single fields are redundant)
+        "images",
+        "thumbnails",
+    }
+
+    out: dict[str, Any] = {}
+    for k in keep_keys:
+        if k in p and p[k] is not None:
+            out[k] = p[k]
+    return out
 
 
 @app.post("/api/transcribe")
@@ -1524,7 +1577,6 @@ def chat_stream(req: ChatRequest):
                     "sources": retrieved_chunks,
                     "rewritten_query": search_query,
                     "enriched_query": enriched_query,
-                    "products": products,
                 }
             )
         except Exception as e:
@@ -1674,10 +1726,11 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             continue
         if cid:
             seen_ids.add(cid)
+        md = _compact_tool_source_metadata(dict(p or {}))
         sources.append({
             "chunk_id": cid,
             "text": p.get("text") or "",
-            "metadata": p,
+            "metadata": md,
             "score": 1.0,
         })
 
@@ -1907,11 +1960,12 @@ def chat_tools_stream(req: ChatRequest):
                             continue
                         if cid:
                             seen_ids.add(cid)
+                        md = _compact_tool_source_metadata(dict(p or {}))
                         sources_out.append(
                             {
                                 "chunk_id": cid,
-                                "text": p.get("text") or "",
-                                "metadata": p,
+                                "text": (p.get("text") or ""),
+                                "metadata": md,
                                 "score": 1.0,
                             }
                         )
@@ -1969,7 +2023,6 @@ def chat_tools_stream(req: ChatRequest):
                         "answer": answer,
                         "sources": sources_out,
                         "sources_total": sources_total,
-                        "products": products,
                     })
                     return
 
@@ -2167,4 +2220,3 @@ def langfuse_diagnose() -> dict[str, Any]:
     all_ok = all(isinstance(v, dict) and v.get("ok") for v in report["steps"].values())
     report["final"] = "ALL OK — check Langfuse UI for trace 'langfuse_diagnose'" if all_ok else "Some steps failed — see per-step errors"
     return report
-
