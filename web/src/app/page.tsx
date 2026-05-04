@@ -324,15 +324,15 @@ type StreamEvent =
   | { type: "token"; delta: string }
   | { type: "products"; items: ProductCard[] }
   | {
-      type: "done";
-      answer: string;
-      sources: SourceChunk[];
-      sources_total?: number;
-      rewritten_query?: string;
-      enriched_query?: string;
-      products?: ProductCard[];
-      conversation_id?: string;
-    }
+    type: "done";
+    answer: string;
+    sources: SourceChunk[];
+    sources_total?: number;
+    rewritten_query?: string;
+    enriched_query?: string;
+    products?: ProductCard[];
+    conversation_id?: string;
+  }
   | { type: "error"; message: string };
 
 function parseSseEvents(buffer: string) {
@@ -479,21 +479,21 @@ export default function Home() {
 
   const LOADING_MESSAGES: Record<LoadingBucket, string[]> = {
     general_search: [
-      "Sniffing out the best options for your pet… 🐾",
-      "Looking for something your pet will love…",
-      "Fetching tail-wag approved picks…"
+      "Sniffing out the best options for your pet! 🐾",
+      "Looking for something your pet will love!",
+      "Fetching tail-wag approved picks!"
     ],
     product_recs: [
-      "Picking the best treats and toys…",
-      "Checking what other pet parents love…",
-      "Finding top-rated goodies for your furry friend…"
+      "Picking the best treats and toys!",
+      "Checking what other pet parents love!",
+      "Finding top-rated goodies for your furry friend!"
     ],
     price_compare: [
-      "Comparing prices so you don’t overpay…",
-      "Finding the best value for your pet…"
+      "Comparing prices so you don’t overpay!",
+      "Finding the best value for your pet!"
     ],
-    basket: ["Filling your basket with paw-picked goodies…", "Balancing your basket to fit your budget…"],
-    smart: ["Thinking like a pet expert…", "Matching your pet’s needs…"]
+    basket: ["Filling your basket with paw-picked goodies!", "Balancing your basket to fit your budget!"],
+    smart: ["Thinking like a pet expert!", "Matching your pet’s needs!"]
   };
 
   function bucketFromIntentPhaseTool(intent: string | null, phase: string | null, tool: string | null): LoadingBucket {
@@ -602,7 +602,7 @@ export default function Home() {
           if (done) break;
           if (requestIdRef.current !== reqId) break;
           if (signal.aborted) {
-            try { await reader.cancel(); } catch {}
+            try { await reader.cancel(); } catch { }
             break;
           }
 
@@ -1026,11 +1026,10 @@ export default function Home() {
                 <button
                   key={c.id}
                   onClick={() => loadConversation(c.id)}
-                  className={`w-full rounded-md px-2 py-2 text-left text-xs ${
-                    active
+                  className={`w-full rounded-md px-2 py-2 text-left text-xs ${active
                       ? "bg-brand-100 text-brand-800"
                       : "bg-white text-slate-700 hover:bg-slate-100"
-                  }`}
+                    }`}
                   title={title}
                 >
                   <div className="truncate font-medium">{title}</div>
@@ -1066,268 +1065,268 @@ export default function Home() {
       <main className="flex h-screen flex-1 flex-col">
         <div className="flex-1 overflow-y-auto px-6 py-8 md:px-8">
           <div className="mx-auto w-full max-w-3xl">
-          {messages.length === 0 && (
-            <div className="mt-10 flex w-full flex-col items-center text-center">
-              <div className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
-                <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
-              </div>
-               <h1 className="text-2xl font-semibold text-slate-800 md:text-3xl">
-                 Chatea con tu catálogo de productos (Chat with your product catalog)
-               </h1>
-               <p className="mt-3 text-sm text-slate-500">
-                 Busca entre miles de SKUs, precios y tablas en 396 páginas de datos (Searching through thousands of SKUs, prices, and tables across 396 pages of data).
-               </p>
-              <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
-                {sampleQueries.map((q) => (
-                  <button
-                    key={q.label}
-                    onClick={() => sendPrompt(q.label)}
-                    className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-left text-sm text-brand-700 shadow-sm"
-                  >
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white shadow">
-                      <svg viewBox="0 0 24 24" className="h-4 w-4 text-brand-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                        <circle cx="11" cy="11" r="7" />
-                        <path d="M20 20l-3.5-3.5" />
-                      </svg>
-                    </span>
-                    <span className="text-xs font-semibold">{q.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.length > 0 && (
-            <div className="mt-6 w-full space-y-4 pb-8">
-              {messages.map((m) => {
-                const hideEmptyAssistant =
-                  m.role === "assistant" && (!m.content || m.content.trim() === "") && (!m.sources || m.sources.length === 0);
-                if (hideEmptyAssistant) return null;
-
-                return (
-                <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} gap-3`}>
-                  {m.role === "assistant" && (
-                    <div className="mt-1 flex h-12 w-12 flex-none items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white">
-                      <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
-                    </div>
-                  )}
-                  <div className="flex w-full max-w-[85%] flex-col gap-1">
-                    <div
-                      className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        m.role === "user"
-                          ? "ml-auto bg-brand-600 text-white"
-                          : "border border-slate-200 bg-white text-slate-700"
-                      }`}
+            {messages.length === 0 && (
+              <div className="mt-10 flex w-full flex-col items-center text-center">
+                <div className="mb-4 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white shadow-sm">
+                  <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
+                </div>
+                <h1 className="text-2xl font-semibold text-slate-800 md:text-3xl">
+                  Chatea con tu catálogo de productos (Chat with your product catalog)
+                </h1>
+                <p className="mt-3 text-sm text-slate-500">
+                  Busca entre miles de SKUs, precios y tablas en 396 páginas de datos (Searching through thousands of SKUs, prices, and tables across 396 pages of data).
+                </p>
+                <div className="mt-6 grid w-full gap-3 sm:grid-cols-2">
+                  {sampleQueries.map((q) => (
+                    <button
+                      key={q.label}
+                      onClick={() => sendPrompt(q.label)}
+                      className="flex items-center gap-3 rounded-2xl border border-brand-100 bg-brand-50 px-4 py-3 text-left text-sm text-brand-700 shadow-sm"
                     >
-                      {m.role === "assistant" ? (
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          className="space-y-2"
-                          components={{
-                            p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
-                            // Images should only render inside dedicated "card" UIs, not inline in the normal response bubble.
-                            img: () => null,
-                            strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-                            ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
-                            ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
-                            code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>,
-                            table: ({ children }) => (
-                              <div className="w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
-                                <table className="w-full border-collapse text-left text-[13px]">{children}</table>
-                              </div>
-                            ),
-                            thead: ({ children }) => <thead className="bg-slate-50">{children}</thead>,
-                            th: ({ children }) => (
-                              <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold text-slate-700">
-                                {children}
-                              </th>
-                            ),
-                            td: ({ children }) => (
-                              <td className="align-top border-b border-slate-100 px-3 py-2 text-slate-700">
-                                {children}
-                              </td>
-                            ),
-                            tr: ({ children }) => <tr className="hover:bg-slate-50/50">{children}</tr>,
-                          }}
+                      <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-white shadow">
+                        <svg viewBox="0 0 24 24" className="h-4 w-4 text-brand-600" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                          <circle cx="11" cy="11" r="7" />
+                          <path d="M20 20l-3.5-3.5" />
+                        </svg>
+                      </span>
+                      <span className="text-xs font-semibold">{q.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.length > 0 && (
+              <div className="mt-6 w-full space-y-4 pb-8">
+                {messages.map((m) => {
+                  const hideEmptyAssistant =
+                    m.role === "assistant" && (!m.content || m.content.trim() === "") && (!m.sources || m.sources.length === 0);
+                  if (hideEmptyAssistant) return null;
+
+                  return (
+                    <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"} gap-3`}>
+                      {m.role === "assistant" && (
+                        <div className="mt-1 flex h-12 w-12 flex-none items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-white">
+                          <img src="/paw.jpg" alt="Bot" className="h-full w-full object-cover" />
+                        </div>
+                      )}
+                      <div className="flex w-full max-w-[85%] flex-col gap-1">
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-sm shadow-sm ${m.role === "user"
+                              ? "ml-auto bg-brand-600 text-white"
+                              : "border border-slate-200 bg-white text-slate-700"
+                            }`}
                         >
-                          {m.content || ""}
-                        </ReactMarkdown>
-                      ) : (
-                        <div className="whitespace-pre-wrap">{m.content}</div>
-                      )}
-
-                      {m.role === "assistant" && m.products && m.products.length > 0 && (
-                        <ProductCards items={m.products} onOpen={(sku) => setOpenProductSku(sku)} />
-                      )}
-
-                      {m.role === "assistant" && m.sources && m.sources.length > 0 && (
-                        <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                          <summary className="cursor-pointer text-xs font-semibold text-slate-600">
-                            {(() => {
-                              const shown = Math.min(8, m.sources?.length ?? 0);
-                              const total = typeof m.sources_total === "number" && m.sources_total > 0
-                                ? m.sources_total
-                                : (m.sources?.length ?? 0);
-                              if (total > shown) return `Source documents (showing ${shown} of ${total})`;
-                              return `Source documents (${m.sources?.length ?? 0})`;
-                            })()}
-                          </summary>
-                          <div className="mt-2 space-y-2">
-                            <div className="space-y-2 pt-1">
-                              {m.sources.slice(0, 8).map((s, sIdx) => {
-                                const meta = (s.metadata ?? {}) as Record<string, unknown>;
-                                const physical =
-                                  meta.physical_page_number ??
-                                  meta.primary_page ??
-                                  meta.page_number;
-                                const sku = meta.sku;
-                                const brand = meta.brand;
-                                const category = meta.category;
-                                const subcategory = meta.subcategory;
-                                const priceEur = meta.price_eur ?? meta.price_pvpr;
-                                const chunkType = meta.chunk_type;
-                                const catalogUrl =
-                                  process.env.NEXT_PUBLIC_CATALOG_URL || "/catalog.pdf";
-
-                                const parts: ReactNode[] = [];
-                                if (typeof brand === "string" && brand) parts.push(String(brand));
-                                if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
-                                if (typeof category === "string" && category) {
-                                  const cat = typeof subcategory === "string" && subcategory
-                                    ? `${category}/${subcategory}`
-                                    : String(category);
-                                  parts.push(cat);
-                                }
-                                if (typeof priceEur === "number") parts.push(`${priceEur}€`);
-                                if (typeof physical !== "undefined") {
-                                  const pageNum = String(physical);
-                                  parts.push(
-                                    <a
-                                      href={`${catalogUrl}#page=${encodeURIComponent(pageNum)}`}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="text-brand-700 underline-offset-2 hover:underline"
-                                      title="Open this page in the catalog PDF"
-                                    >
-                                      Page {pageNum}
-                                    </a>
-                                  );
-                                }
-                                if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
-                                if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
-
-                                return (
-                                  <div key={s.chunk_id ?? `${m.id}-${sIdx}`} className="rounded-md bg-white px-3 py-2">
-                                    <div className="text-[11px] font-semibold text-slate-700">
-                                      {parts.length
-                                        ? parts.map((p, i) => (
-                                            <span key={i}>
-                                              {i > 0 && " - "}
-                                              {p}
-                                            </span>
-                                          ))
-                                        : "Source"}
-                                    </div>
-                                    {s.text && <div className="mt-1 text-[11px] text-slate-600">{s.text}</div>}
+                          {m.role === "assistant" ? (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              className="space-y-2"
+                              components={{
+                                p: ({ children }) => <p className="whitespace-pre-wrap">{children}</p>,
+                                // Images should only render inside dedicated "card" UIs, not inline in the normal response bubble.
+                                img: () => null,
+                                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                                ul: ({ children }) => <ul className="list-disc space-y-1 pl-5">{children}</ul>,
+                                ol: ({ children }) => <ol className="list-decimal space-y-1 pl-5">{children}</ol>,
+                                code: ({ children }) => <code className="rounded bg-slate-50 px-1 py-0.5 text-[13px]">{children}</code>,
+                                table: ({ children }) => (
+                                  <div className="w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
+                                    <table className="w-full border-collapse text-left text-[13px]">{children}</table>
                                   </div>
-                                );
-                              })}
-                              {(() => {
-                                const shown = Math.min(8, m.sources?.length ?? 0);
-                                const total = typeof m.sources_total === "number" && m.sources_total > 0
-                                  ? m.sources_total
-                                  : (m.sources?.length ?? 0);
-                                if (total > shown) {
-                                  return (
-                                    <div className="text-[11px] text-slate-500">Showing first {shown} of {total} sources.</div>
-                                  );
-                                }
-                                if ((m.sources?.length ?? 0) > 8) {
-                                  return <div className="text-[11px] text-slate-500">Showing first {shown} sources.</div>;
-                                }
-                                return null;
-                              })()}
-                            </div>
+                                ),
+                                thead: ({ children }) => <thead className="bg-slate-50">{children}</thead>,
+                                th: ({ children }) => (
+                                  <th className="whitespace-nowrap border-b border-slate-200 px-3 py-2 font-semibold text-slate-700">
+                                    {children}
+                                  </th>
+                                ),
+                                td: ({ children }) => (
+                                  <td className="align-top border-b border-slate-100 px-3 py-2 text-slate-700">
+                                    {children}
+                                  </td>
+                                ),
+                                tr: ({ children }) => <tr className="hover:bg-slate-50/50">{children}</tr>,
+                              }}
+                            >
+                              {m.content || ""}
+                            </ReactMarkdown>
+                          ) : (
+                            <div className="whitespace-pre-wrap">{m.content}</div>
+                          )}
+
+                          {m.role === "assistant" && m.products && m.products.length > 0 && (
+                            <ProductCards items={m.products} onOpen={(sku) => setOpenProductSku(sku)} />
+                          )}
+
+                          {m.role === "assistant" && m.sources && m.sources.length > 0 && (
+                            <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                              <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+                                {(() => {
+                                  const shown = Math.min(8, m.sources?.length ?? 0);
+                                  const total = typeof m.sources_total === "number" && m.sources_total > 0
+                                    ? m.sources_total
+                                    : (m.sources?.length ?? 0);
+                                  if (total > shown) return `Source documents (showing ${shown} of ${total})`;
+                                  return `Source documents (${m.sources?.length ?? 0})`;
+                                })()}
+                              </summary>
+                              <div className="mt-2 space-y-2">
+                                <div className="space-y-2 pt-1">
+                                  {m.sources.slice(0, 8).map((s, sIdx) => {
+                                    const meta = (s.metadata ?? {}) as Record<string, unknown>;
+                                    const physical =
+                                      meta.physical_page_number ??
+                                      meta.primary_page ??
+                                      meta.page_number;
+                                    const sku = meta.sku;
+                                    const brand = meta.brand;
+                                    const category = meta.category;
+                                    const subcategory = meta.subcategory;
+                                    const priceEur = meta.price_eur ?? meta.price_pvpr;
+                                    const chunkType = meta.chunk_type;
+                                    const catalogUrl =
+                                      process.env.NEXT_PUBLIC_CATALOG_URL || "/catalog.pdf";
+
+                                    const parts: ReactNode[] = [];
+                                    if (typeof brand === "string" && brand) parts.push(String(brand));
+                                    if (typeof sku === "string" && sku) parts.push(`SKU ${sku}`);
+                                    if (typeof category === "string" && category) {
+                                      const cat = typeof subcategory === "string" && subcategory
+                                        ? `${category}/${subcategory}`
+                                        : String(category);
+                                      parts.push(cat);
+                                    }
+                                    if (typeof priceEur === "number") parts.push(`${priceEur}€`);
+                                    if (typeof physical !== "undefined") {
+                                      const pageNum = String(physical);
+                                      parts.push(
+                                        <a
+                                          href={`${catalogUrl}#page=${encodeURIComponent(pageNum)}`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-brand-700 underline-offset-2 hover:underline"
+                                          title="Open this page in the catalog PDF"
+                                        >
+                                          Page {pageNum}
+                                        </a>
+                                      );
+                                    }
+                                    if (typeof chunkType === "string" && chunkType) parts.push(String(chunkType));
+                                    if (typeof s.score === "number") parts.push(`Score ${s.score.toFixed(4)}`);
+
+                                    return (
+                                      <div key={s.chunk_id ?? `${m.id}-${sIdx}`} className="rounded-md bg-white px-3 py-2">
+                                        <div className="text-[11px] font-semibold text-slate-700">
+                                          {parts.length
+                                            ? parts.map((p, i) => (
+                                              <span key={i}>
+                                                {i > 0 && " - "}
+                                                {p}
+                                              </span>
+                                            ))
+                                            : "Source"}
+                                        </div>
+                                        {s.text && <div className="mt-1 text-[11px] text-slate-600">{s.text}</div>}
+                                      </div>
+                                    );
+                                  })}
+                                  {(() => {
+                                    const shown = Math.min(8, m.sources?.length ?? 0);
+                                    const total = typeof m.sources_total === "number" && m.sources_total > 0
+                                      ? m.sources_total
+                                      : (m.sources?.length ?? 0);
+                                    if (total > shown) {
+                                      return (
+                                        <div className="text-[11px] text-slate-500">Showing first {shown} of {total} sources.</div>
+                                      );
+                                    }
+                                    if ((m.sources?.length ?? 0) > 8) {
+                                      return <div className="text-[11px] text-slate-500">Showing first {shown} sources.</div>;
+                                    }
+                                    return null;
+                                  })()}
+                                </div>
+                              </div>
+                            </details>
+                          )}
+                        </div>
+
+                        {m.role === "assistant" && (
+                          <div className="relative ml-2 flex items-center">
+                            <button
+                              onClick={() => setOpenMenuId(openMenuId === m.id ? null : m.id)}
+                              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                              title="More options"
+                            >
+                              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                                <circle cx="5" cy="12" r="2" />
+                                <circle cx="12" cy="12" r="2" />
+                                <circle cx="19" cy="12" r="2" />
+                              </svg>
+                            </button>
+                            {openMenuId === m.id && (
+                              <>
+                                <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
+                                <div className="absolute left-0 top-8 z-20 w-48 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(m.content);
+                                      setOpenMenuId(null);
+                                    }}
+                                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                    </svg>
+                                    Copy Response
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setOpenMenuId(null);
+                                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                      if (typeof window !== "undefined" && (window as any).Userback) {
+                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                        (window as any).Userback.open("feedback");
+                                      } else {
+                                        alert("Feedback widget is not loaded yet.");
+                                      }
+                                    }}
+                                    className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                                    </svg>
+                                    Send Feedback
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
-                        </details>
-                      )}
-                    </div>
-                    
-                    {m.role === "assistant" && (
-                      <div className="relative ml-2 flex items-center">
-                        <button
-                          onClick={() => setOpenMenuId(openMenuId === m.id ? null : m.id)}
-                          className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
-                          title="More options"
-                        >
-                          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-                            <circle cx="5" cy="12" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="19" cy="12" r="2" />
-                          </svg>
-                        </button>
-                        {openMenuId === m.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setOpenMenuId(null)} />
-                            <div className="absolute left-0 top-8 z-20 w-48 rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
-                              <button
-                                onClick={() => {
-                                  navigator.clipboard.writeText(m.content);
-                                  setOpenMenuId(null);
-                                }}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
-                              >
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                                Copy Response
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setOpenMenuId(null);
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  if (typeof window !== "undefined" && (window as any).Userback) {
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    (window as any).Userback.open("feedback");
-                                  } else {
-                                    alert("Feedback widget is not loaded yet.");
-                                  }
-                                }}
-                                className="flex w-full items-center gap-2 px-4 py-2 text-left text-slate-700 hover:bg-slate-50"
-                              >
-                                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                                </svg>
-                                Send Feedback
-                              </button>
-                            </div>
-                          </>
                         )}
                       </div>
-                    )}
-                  </div>
-                </div>
-              )})}
-
-              {loading && !streaming && (
-                <div className="flex justify-start py-2">
-                  <div className="flex items-center gap-3 px-2">
-                    <img src="/dog.gif" alt="Loading" className="h-14 w-14 flex-none" />
-                    <div className="min-w-0 flex-1 truncate text-slate-600 text-sm">
-                      {friendlyLoadingText ?? "Thinking..."}
                     </div>
-                    <div className="ml-auto">
-                      <ThinkingDots />
+                  )
+                })}
+
+                {loading && !streaming && (
+                  <div className="flex justify-start py-2">
+                    <div className="flex items-center gap-3 px-2">
+                      <img src="/dog.gif" alt="Loading" className="h-14 w-14 flex-none" />
+                      <div className="min-w-0 flex-1 truncate text-slate-600 text-sm">
+                        {friendlyLoadingText ?? "Thinking..."}
+                      </div>
+                      <div className="ml-auto">
+                        <ThinkingDots />
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              <div ref={bottomRef} />
-            </div>
-          )}
+                <div ref={bottomRef} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -1335,109 +1334,107 @@ export default function Home() {
           <div className="mx-auto w-full max-w-3xl">
             <div className="rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm">
               <div className="flex items-center gap-3">
-              <div className="min-w-0 flex-1">
-                {voiceMode === "idle" ? (
-                  <input
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !loading) sendPrompt(input);
-                    }}
-                    placeholder="Pregunta sobre un producto, SKU o precio... (Ask about a product, SKU or price...)"
-                    className="w-full bg-transparent text-sm text-slate-700 outline-none"
-                    disabled={loading}
-                  />
-                ) : voiceMode === "recording" ? (
-                  <div className="flex items-center gap-3 py-0.5">
-                    <Waveform />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-slate-800">Recording…</div>
-                      <div className="text-xs text-slate-500">
-                        {formatTime(recordingSeconds)} / {formatTime(RECORDING_MAX_SECONDS)}
+                <div className="min-w-0 flex-1">
+                  {voiceMode === "idle" ? (
+                    <input
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !loading) sendPrompt(input);
+                      }}
+                      placeholder="Pregunta sobre un producto, SKU o precio... (Ask about a product, SKU or price...)"
+                      className="w-full bg-transparent text-sm text-slate-700 outline-none"
+                      disabled={loading}
+                    />
+                  ) : voiceMode === "recording" ? (
+                    <div className="flex items-center gap-3 py-0.5">
+                      <Waveform />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-slate-800">Recording…</div>
+                        <div className="text-xs text-slate-500">
+                          {formatTime(recordingSeconds)} / {formatTime(RECORDING_MAX_SECONDS)}
+                        </div>
                       </div>
+                      <div className="hidden text-xs text-slate-400 sm:block">Tap mic to stop</div>
                     </div>
-                    <div className="hidden text-xs text-slate-400 sm:block">Tap mic to stop</div>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 py-2 text-sm text-slate-600">
-                    <ThinkingDots />
-                    <div className="min-w-0 flex-1 truncate">Processing…</div>
-                  </div>
-                )}
-              </div>
+                  ) : (
+                    <div className="flex items-center gap-3 py-2 text-sm text-slate-600">
+                      <ThinkingDots />
+                      <div className="min-w-0 flex-1 truncate">Processing…</div>
+                    </div>
+                  )}
+                </div>
 
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handlePhotoSelected(e.target.files?.[0] ?? null)}
-              />
-              <button
-                onClick={() => photoInputRef.current?.click()}
-                className={`relative flex h-9 w-9 items-center justify-center rounded-full border ${
-                  photoMode === "uploading" || photoSearchesRemaining === 0
-                    ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300"
-                    : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}
-                title={
-                  photoSearchesRemaining === 0
-                    ? "Photo-search limit reached for this conversation"
-                    : photoSearchesRemaining != null
-                      ? `Search by photo (${photoSearchesRemaining} left)`
-                      : "Search by photo"
-                }
-                type="button"
-                disabled={
-                  photoMode === "uploading" ||
-                  loading ||
-                  voiceMode !== "idle" ||
-                  photoSearchesRemaining === 0
-                }
-              >
-                <CameraIcon className="h-4 w-4" />
-                {photoSearchesRemaining != null && photoSearchesRemaining < 4 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-600 px-1 text-[9px] font-semibold leading-none text-white">
-                    {photoSearchesRemaining}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={toggleRecording}
-                className={`flex h-9 w-9 items-center justify-center rounded-full border ${
-                  voiceMode === "recording"
-                    ? "border-brand-500 bg-brand-50 text-brand-700"
-                    : voiceMode === "processing"
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handlePhotoSelected(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  className={`relative flex h-9 w-9 items-center justify-center rounded-full border ${photoMode === "uploading" || photoSearchesRemaining === 0
                       ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300"
                       : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}
-                title="Voice input"
-                type="button"
-                disabled={voiceMode === "processing" || photoMode === "uploading"}
-              >
-                <MicIcon className="h-4 w-4" />
-              </button>
-
-              {loading ? (
-                <button
-                  onClick={stopGeneration}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white hover:bg-slate-900"
+                    }`}
+                  title={
+                    photoSearchesRemaining === 0
+                      ? "Photo-search limit reached for this conversation"
+                      : photoSearchesRemaining != null
+                        ? `Search by photo (${photoSearchesRemaining} left)`
+                        : "Search by photo"
+                  }
                   type="button"
-                  title="Stop generating"
-                  aria-label="Stop generating"
+                  disabled={
+                    photoMode === "uploading" ||
+                    loading ||
+                    voiceMode !== "idle" ||
+                    photoSearchesRemaining === 0
+                  }
                 >
-                  <StopIcon className="h-3.5 w-3.5" />
+                  <CameraIcon className="h-4 w-4" />
+                  {photoSearchesRemaining != null && photoSearchesRemaining < 4 && (
+                    <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-600 px-1 text-[9px] font-semibold leading-none text-white">
+                      {photoSearchesRemaining}
+                    </span>
+                  )}
                 </button>
-              ) : (
+
                 <button
-                  onClick={() => sendPrompt(input)}
-                  className="rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                  disabled={voiceMode !== "idle"}
+                  onClick={toggleRecording}
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border ${voiceMode === "recording"
+                      ? "border-brand-500 bg-brand-50 text-brand-700"
+                      : voiceMode === "processing"
+                        ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  title="Voice input"
+                  type="button"
+                  disabled={voiceMode === "processing" || photoMode === "uploading"}
                 >
-                  Send
+                  <MicIcon className="h-4 w-4" />
                 </button>
-              )}
+
+                {loading ? (
+                  <button
+                    onClick={stopGeneration}
+                    className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white hover:bg-slate-900"
+                    type="button"
+                    title="Stop generating"
+                    aria-label="Stop generating"
+                  >
+                    <StopIcon className="h-3.5 w-3.5" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => sendPrompt(input)}
+                    className="rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                    disabled={voiceMode !== "idle"}
+                  >
+                    Send
+                  </button>
+                )}
               </div>
             </div>
           </div>
