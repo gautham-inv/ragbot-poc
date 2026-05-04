@@ -9,6 +9,8 @@ services:
     ports:
       # Expose locally for testing constraints
       - "15432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
     restart: unless-stopped
 
   auth-server:
@@ -22,7 +24,7 @@ services:
       - DATABASE_URL=postgresql://admin:secure_password@auth-db:5432/ragbot_auth?schema=public
       - BETTER_AUTH_SECRET=local_dev_secret_key_1234
       - BETTER_AUTH_URL=http://localhost:4000
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:4000
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:4000
     depends_on:
       - auth-db
     restart: unless-stopped
@@ -67,7 +69,12 @@ services:
     environment:
       - NEXT_PUBLIC_AUTH_URL=http://localhost:4000
       - NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+      - AUTH_SERVER_INTERNAL_URL=http://auth-server:4000
+      - RAGBOT_API_INTERNAL_URL=http://ragbot-api:8000
     depends_on:
       - auth-server
       - ragbot-api
     restart: unless-stopped
+
+volumes:
+  auth_db_data:

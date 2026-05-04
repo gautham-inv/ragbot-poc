@@ -9,6 +9,8 @@ services:
     ports:
       # Expose only to localhost for Caddy/Server security
       - "127.0.0.1:15432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d ragbot_auth"]
       interval: 5s
@@ -80,7 +82,12 @@ services:
     environment:
       - NEXT_PUBLIC_AUTH_URL=https://admin-gp.innovin.win
       - NEXT_PUBLIC_API_BASE_URL=https://admin-gp.innovin.win
+      - AUTH_SERVER_INTERNAL_URL=http://auth-server:4000
+      - RAGBOT_API_INTERNAL_URL=http://ragbot-api:8000
     depends_on:
       - auth-server
       - ragbot-api
     restart: always
+
+volumes:
+  auth_db_data:

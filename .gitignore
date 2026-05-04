@@ -21,3 +21,5 @@ web/.env.local
 # MacOS
 .DS_Store
 .env.example
+venv
+outputs

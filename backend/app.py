@@ -105,12 +105,19 @@ app = FastAPI(title="Gloriapets RAG API", lifespan=lifespan)
 # CORS for local/dev frontends (Next.js)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://gloriapets-chatbot.innovin.win"],
+    allow_origins=[
+        "https://gloriapets-chatbot.innovin.win",
+        "https://admin-gp.innovin.win",
+    ],
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Admin product CRUD (gated by Better Auth session inside the router).
+from backend.admin_api import router as admin_router  # noqa: E402
+app.include_router(admin_router)
 
 
 @lru_cache(maxsize=1)

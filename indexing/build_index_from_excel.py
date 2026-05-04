@@ -147,6 +147,31 @@ def _load_sku_page_map() -> dict[str, dict]:
         return {}
 
 
+@functools.lru_cache(maxsize=1)
+def _load_sku_image_map() -> dict[str, dict]:
+    """Load {sku -> {primary_image, thumbnail, images[], thumbnails[]}} from
+    data/sku_image_map.json if present. Lookup is case-insensitive — we lower
+    the keys here so callers can normalize once."""
+    path = Path(os.getenv("SKU_IMAGE_MAP_PATH", "data/sku_image_map.json"))
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return {}
+        # Normalize keys (case-insensitive lookup) without losing the original.
+        out: dict[str, dict] = {}
+        for k, v in raw.items():
+            if not isinstance(v, dict):
+                continue
+            out[str(k).strip()] = v
+            out[str(k).strip().upper()] = v
+            out[str(k).strip().lower()] = v
+        return out
+    except Exception:
+        return {}
+
+
 def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """Return (chunk_id, text_to_embed, payload)."""
     p = rec.get("payload") or {}
@@ -161,6 +186,13 @@ def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     page_entry = _load_sku_page_map().get(str(sku).strip().upper()) or {}
     catalog_pages = page_entry.get("pages")
     primary_page = page_entry.get("primary_page")
+
+    # Cloudinary image URLs (if ingestion/upload_product_images.py has been run).
+    image_entry = _load_sku_image_map().get(str(sku).strip()) or {}
+    primary_image = image_entry.get("primary_image")
+    thumbnail = image_entry.get("thumbnail")
+    images = image_entry.get("images") or None
+    thumbnails = image_entry.get("thumbnails") or None
 
     text = (rec.get("soft_text") or "").strip()
     if not text:
@@ -241,6 +273,12 @@ def record_to_chunk(rec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
         # ------- PDF catalog cross-reference -------
         "catalog_pages": catalog_pages,
         "primary_page": primary_page,
+
+        # ------- Cloudinary image URLs (folded in at index time) -------
+        "primary_image": primary_image,
+        "thumbnail": thumbnail,
+        "images": images,
+        "thumbnails": thumbnails,
 
         # ------- multilingual display names -------
         "name_es": names.get("es"),
@@ -368,6 +406,30 @@ def main() -> int:
         traceback.print_exc()
         return 1
 
+    # Fields the admin UI / Cloudinary upload may have set directly on a point.
+    # On re-ingest we preserve these unless the new payload already provides them
+    # (e.g. an SKU whose image lives in data/sku_image_map.json).
+    ADMIN_PRESERVED_FIELDS = ("primary_image", "thumbnail", "images", "thumbnails")
+
+    def _fetch_existing_payloads(point_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Return {id: payload} for ids that already exist; missing ids are simply absent."""
+        if not point_ids:
+            return {}
+        try:
+            existing = client.retrieve(
+                collection_name=COLLECTION,
+                ids=point_ids,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for p in existing:
+            if p.payload:
+                out[str(p.id)] = p.payload
+        return out
+
     print(f"[4/5] Embedding + upserting {len(chunks)} chunks (batch_size={BATCH_SIZE}) ...",
           flush=True)
     try:
@@ -375,17 +437,28 @@ def main() -> int:
             batch = chunks[i : i + BATCH_SIZE]
             texts = [f"passage: {c[1]}" for c in batch]
             embs = model.encode(texts, normalize_embeddings=True).tolist()
-            client.upsert(
-                collection_name=COLLECTION,
-                points=[
-                    {
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, batch[j][0])),
-                        "vector": embs[j],
-                        "payload": batch[j][2],
-                    }
-                    for j in range(len(batch))
-                ],
-            )
+
+            point_ids = [
+                str(uuid.uuid5(uuid.NAMESPACE_URL, batch[j][0]))
+                for j in range(len(batch))
+            ]
+            prior = _fetch_existing_payloads(point_ids)
+
+            points = []
+            for j in range(len(batch)):
+                payload = batch[j][2]
+                old = prior.get(point_ids[j]) or {}
+                # Restore admin-managed fields the new payload didn't set.
+                for k in ADMIN_PRESERVED_FIELDS:
+                    if k not in payload and old.get(k) is not None:
+                        payload[k] = old[k]
+                points.append({
+                    "id": point_ids[j],
+                    "vector": embs[j],
+                    "payload": payload,
+                })
+
+            client.upsert(collection_name=COLLECTION, points=points)
             done = min(i + BATCH_SIZE, len(chunks))
             print(f"       Upserted {done}/{len(chunks)}", flush=True)
     except Exception as e:

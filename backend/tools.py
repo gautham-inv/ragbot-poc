@@ -393,6 +393,14 @@ def _product_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "height_cm": payload.get("height_cm"),
         "weight_g": payload.get("weight_g"),
         "text": payload.get("text"),
+        # Image fields written into Qdrant payload by either the bulk indexer
+        # (folded in from data/sku_image_map.json) or the admin add-product flow
+        # (services/products.py:add_product_image → set_payload). attach_images
+        # below falls back to the JSON map only if these are missing.
+        "primary_image": payload.get("primary_image"),
+        "thumbnail": payload.get("thumbnail"),
+        "images": payload.get("images"),
+        "thumbnails": payload.get("thumbnails"),
     }
     return attach_images(product)
 

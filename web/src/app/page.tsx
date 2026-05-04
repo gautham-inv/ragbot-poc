@@ -1315,7 +1315,7 @@ export default function Home() {
                 <div className="flex justify-start">
                   <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
                     <div className="flex items-center gap-3">
-                      <img src="/dog.gif" alt="Loading" className="h-7 w-7 flex-none" />
+                      <img src="/dog.gif" alt="Loading" className="h-14 w-14 flex-none" />
                       <div className="min-w-0 flex-1 truncate text-slate-600">
                         {friendlyLoadingText ?? "Thinking..."}
                       </div>

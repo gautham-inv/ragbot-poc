@@ -41,16 +41,25 @@ def get_images(sku: str | None) -> dict[str, Any] | None:
 
 
 def attach_images(product: dict[str, Any]) -> dict[str, Any]:
-    """Mutate+return a product summary with image fields (or empty strings if no map entry)."""
-    rec = get_images(product.get("sku"))
-    if rec:
-        product["primary_image"] = rec.get("primary_image") or ""
-        product["thumbnail"] = rec.get("thumbnail") or ""
-        product["images"] = rec.get("images") or []
-        product["thumbnails"] = rec.get("thumbnails") or []
-    else:
-        product.setdefault("primary_image", "")
-        product.setdefault("thumbnail", "")
-        product.setdefault("images", [])
-        product.setdefault("thumbnails", [])
+    """Mutate+return a product summary with image fields (or empty strings if no entry).
+
+    Order of precedence:
+      1. Image fields already on the product dict (Qdrant payload — populated by
+         indexing/build_index_from_excel.py and admin add-product writes).
+      2. data/sku_image_map.json fallback (back-compat for any point not yet
+         migrated by indexing/backfill_image_payload.py).
+    """
+    has_payload_image = bool(product.get("primary_image") or product.get("images"))
+    if not has_payload_image:
+        rec = get_images(product.get("sku"))
+        if rec:
+            product["primary_image"] = rec.get("primary_image") or ""
+            product["thumbnail"] = rec.get("thumbnail") or ""
+            product["images"] = rec.get("images") or []
+            product["thumbnails"] = rec.get("thumbnails") or []
+
+    product.setdefault("primary_image", "")
+    product.setdefault("thumbnail", "")
+    product.setdefault("images", [])
+    product.setdefault("thumbnails", [])
     return product

@@ -1234,6 +1234,20 @@ export default function Page() {
           </Popover>
         </div>
         <button
+          className="h-8 px-2.5 rounded-md border border-rule bg-card inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text"
+          onClick={() => router.push("/products")}
+          title="Browse the product catalog"
+        >
+          Products
+        </button>
+        <button
+          className="h-8 px-2.5 rounded-md border border-rule bg-card inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text"
+          onClick={() => router.push("/products/new")}
+          title="Add a new product to the catalog"
+        >
+          + Add product
+        </button>
+        <button
           className="h-8 px-2.5 rounded-md border border-rule bg-card inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text disabled:opacity-50"
           onClick={onLogout}
           disabled={loggingOut}
