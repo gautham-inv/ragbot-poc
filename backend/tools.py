@@ -82,6 +82,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
                               "description": "Optional brand filter."},
                     "category": {"type": "string", "enum": CATEGORY_ENUM,
                                  "description": "Optional category filter."},
+                    "subcategory": {"type": "string",
+                                    "description": "Optional subcategory filter (English snake_case slug, e.g. 'plush', 'chew_toy', 'collar')."},
                     "species": {"type": "string", "enum": SPECIES_ENUM,
                                 "description": "Optional species filter."},
                     "price_min": {"type": "number", "description": "€ minimum PVPR."},
@@ -573,9 +575,13 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "  - peluche / plush = subcategory 'plush'\n"
         "  - cuerda / tira y afloja / tug = subcategory 'tug' or 'tug_toy'\n"
         "  - alfombra de lamer / lick mat = subcategory 'lick_mat'\n"
+        "  - juguete olfativo / olfato / snuffle toy / sniff ball / scent ball = subcategory 'snuffle_toy'\n"
+        "  - dispensador de premios / treat dispenser / treat-rolling toy / slow feeder rubber toy (KONG Wobbler / KONG Rewards) = subcategory 'treat_dispenser'\n"
+        "  - tienda / túnel / cueva para gato / cat tent / cat tunnel / cat cave / hideout = subcategory 'cat_hideout'\n"
         "  - rascador / catnip = subcategory 'catnip'\n"
         "  - manta / mattress = subcategory 'mattress'\n"
         "  - traje de recuperación / recovery shirt / e-collar shirt = subcategory 'recovery_shirt'\n"
+        "  - cono / collarín isabelino / e-collar / recovery cone = subcategory 'recovery_collar' (healthcare category, post-surgery)\n"
         "  - pañal / diaper = subcategory 'diaper'\n"
         "  - clicker / silbato / whistle = subcategory 'clicker' or 'whistle'\n"
         "  - corrector de conducta / behavior corrector = subcategory 'behavior_corrector'\n"
@@ -750,6 +756,7 @@ def semantic_search(
     query: str,
     brand: str | None = None,
     category: str | None = None,
+    subcategory: str | None = None,
     species: str | None = None,
     price_min: float | None = None,
     price_max: float | None = None,
@@ -763,8 +770,8 @@ def semantic_search(
     from retrieval.hybrid_search import bm25_search, qdrant_search
     from retrieval.rrf import reciprocal_rank_fusion
 
-    flt = _build_filter(brand=brand, category=category, species=species,
-                        price_min=price_min, price_max=price_max)
+    flt = _build_filter(brand=brand, category=category, subcategory=subcategory,
+                        species=species, price_min=price_min, price_max=price_max)
 
     # Over-fetch candidates so the reranker can promote strong matches that
     # hybrid RRF ranked lower. Trimmed back to `limit` after reranking.
@@ -779,8 +786,8 @@ def semantic_search(
         "tool": "semantic_search",
         "query": query,
         "filters": {k: v for k, v in {
-            "brand": brand, "category": category, "species": species,
-            "price_min": price_min, "price_max": price_max,
+            "brand": brand, "category": category, "subcategory": subcategory,
+            "species": species, "price_min": price_min, "price_max": price_max,
         }.items() if v is not None},
         "count": len(products),
         "reranked": os.getenv("RERANKER_ENABLED", "1") != "0",

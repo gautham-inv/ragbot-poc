@@ -1,0 +1,61 @@
+{
+  "categories": {},
+  "subcategories": {
+    "recovery_collar": {
+      "parent_category": "healthcare",
+      "rationale": "Soft Elizabethan recovery cones for post-surgery use — distinct from regular collars (accessories) and recovery_shirt (body wrap). KVP EZ Soft line.",
+      "example_skus": ["KVP0150", "KVP0151", "KVP0152", "KVP0153", "KVP0154"],
+      "confidence": 0.85,
+      "status": "ADDED to backend/app.py vision prompt"
+    },
+    "snuffle_toy": {
+      "parent_category": "toys",
+      "rationale": "Scent / sniff / snuffle treat-finding toys (HUNTER Eiby Bola, KONG Layerz Forage line). 3 SKUs.",
+      "example_skus": ["HU69357", "JU04675", "JU04676"],
+      "confidence": 0.85,
+      "status": "ADDED to backend/app.py vision prompt"
+    },
+    "cat_hideout": {
+      "parent_category": "toys",
+      "rationale": "Cat play tents/tunnels/caves — hideout structures with hanging catnip toys and lights. KONG Play Spaces line. 2 SKUs.",
+      "example_skus": ["JU04643", "JU04663"],
+      "confidence": 0.9,
+      "status": "ADDED to backend/app.py vision prompt",
+      "verified_via": "web search"
+    },
+    "treat_dispenser": {
+      "parent_category": "toys",
+      "rationale": "Treat-dispensing slow-feeder toys whose primary function is dispensing food/treats (vs. chew toys that happen to be stuffable). KONG Rewards line (Ball, Shell, Tennis, Tinker, Wally) and KONG Wobbler. ~9 SKUs.",
+      "example_skus": ["JU04228", "JU04229", "JU04311", "JU04521", "JU04448", "JU03299", "JU03300"],
+      "confidence": 0.9,
+      "status": "ADDED to backend/app.py vision prompt",
+      "verified_via": "web search"
+    }
+  },
+  "species": {
+    "horse": {
+      "rationale": "MEN FOR SAN MFE* prefix (equino). ~15 SKUs.",
+      "example_skus": ["MFE034065", "MFE033969", "MFE034089", "MFE034003", "MFE033983"],
+      "confidence": 0.85,
+      "status": "ADDED to backend/app.py _VISION_SPECIES"
+    },
+    "rodent": {
+      "rationale": "MEN FOR SAN MFR* + small-mammal products. Confirmed via Menforsan manufacturer pages: rodent products often span rabbits + ferrets.",
+      "example_skus": ["MFR012", "MFR063", "MFR030975"],
+      "confidence": 0.92,
+      "status": "ADDED, web-verified for some SKUs"
+    },
+    "rabbit": {
+      "rationale": "Products mentioning conejos. Often co-tagged with rodent + ferret (e.g. MEN FOR SAN small-mammal shampoos).",
+      "example_skus": ["MFL141", "MFR030975", "MFH022284", "MFR012", "MFH0012"],
+      "confidence": 0.92,
+      "status": "ADDED, web-verified"
+    },
+    "ferret": {
+      "rationale": "Products mentioning hurones. Often co-tagged with rodent + rabbit.",
+      "example_skus": ["MFH022284", "MFR030975", "MFH041", "MFR012", "MFH040"],
+      "confidence": 0.92,
+      "status": "ADDED, web-verified"
+    }
+  }
+}

@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ragbot")
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -43,20 +43,6 @@ from backend.db import (
 )
 
 load_project_env()
-
-app = FastAPI(title="Gloriapets RAG API")
-
-# CORS for local/dev frontends (Next.js)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-    "https://gloriapets-chatbot.innovin.win",
-    "http://localhost:3000",
-],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 class ChatRequest(BaseModel):
@@ -115,6 +101,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Gloriapets RAG API", lifespan=lifespan)
+
+# CORS for local/dev frontends (Next.js)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://gloriapets-chatbot.innovin.win"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @lru_cache(maxsize=1)
@@ -892,6 +888,463 @@ async def transcribe_audio(file: UploadFile = File(...)) -> dict[str, str]:
         response_format="text",
     )
     return {"text": str(transcription).strip()}
+
+
+# ---------------------------------------------------------------------------
+# Search-by-image
+# ---------------------------------------------------------------------------
+#
+# A vision model converts a product photo into a strict JSON of catalog-aligned
+# fields. We then compose a single Spanish query string that the existing
+# /api/chat pipeline can consume unchanged: BM25 picks up brand / category /
+# printed-text tokens; the SKU regex (_extract_skus_from_query) picks up any
+# verbatim SKU; the multilingual-e5 dense side handles the descriptors.
+#
+# Provider: Google AI Studio (Gemini) via its OpenAI-compatible endpoint —
+# generous free tier, no GCP/Vertex setup, isolates failures from the chat
+# OpenRouter path.
+
+# Catalog-aligned controlled vocabulary for the FILTER fields. Values must match
+# the slugs stored in Qdrant payload (otherwise FieldCondition filters drop all
+# rows). See `excel_dataset` collection — categories/subcategories/species are
+# English snake_case; sizes are physical labels (XS, S, M, L, XL, XXL).
+_VISION_CATEGORIES = (
+    "accessories", "toys", "grooming", "nutrition", "healthcare",
+    "hygiene", "training", "housing", "apparel", "equipment",
+)
+_VISION_SUBCATEGORY_HINTS = (
+    "accessories: collar, harness, leash, muzzle, bowl, water_dispenser, dispenser, "
+    "doormat, seat_cover, scoop, pouch, carrier, leash_coupler, food_bag, car_restraint, reflector\n"
+    "  toys: chew_toy, ball, toy, cat_toy, plush, lick_mat, chew_toy_pack, catnip, play_mat, "
+    "snuffle_toy, treat_dispenser, cat_hideout\n"
+    "  grooming: shampoo, fragrance, brush, balm, conditioner, scissors, nail_clipper, "
+    "grooming_mitt, spray, mousse, deshedder, ear_care, lotion, towel, flea_comb\n"
+    "  nutrition: dental_chew, wet_food, treat, yogurt, ice_cream, edible_chew, wet_treat, milk, kefir\n"
+    "  healthcare: parasiticide, pheromone, repellent, skin_care, dental_care, recovery_shirt, "
+    "recovery_collar, calming, supplement, antiparasitic, eye_care, wound_care, tick_remover, liniment\n"
+    "  hygiene: wipes, poop_bags, litter, cleaner, diaper, training_pad, odor_eliminator, "
+    "litter_filter, stain_remover, detergent\n"
+    "  training: tug_toy, bite_pillow, dumbbell, tug, ball, clicker, treat_dummy, whistle, "
+    "treat_bag, behavior_corrector, reward_toy, deterrent, dummy, control_rod\n"
+    "  housing: bed, litter_box, mattress, carrier\n"
+    "  apparel: coat\n"
+    "  equipment: blade, clipper"
+)
+_VISION_SPECIES = ("dog", "cat", "reptile", "bird", "horse", "rodent", "rabbit", "ferret")
+_VISION_SIZE_LABELS = ("XS", "S", "M", "L", "XL", "XXL", "XXS", "XXXL")
+
+_VISION_FIELDS = (
+    "brand",
+    "sku",
+    "category",
+    "subcategory",
+    "species",
+    "size_label",
+    "product_type_es",
+    "color_es",
+    "material_es",
+    "shape_es",
+    "printed_text",
+)
+
+_VISION_SYSTEM_PROMPT = (
+    "You convert a pet-product photo into structured fields used to search a catalog.\n"
+    "The catalog stores filterable fields (category / subcategory / species / size_label)\n"
+    "as ENGLISH slugs — output those in English. Output the descriptive fields\n"
+    "(product_type, color, material, shape) in SPANISH for embedding-based match.\n"
+    "Return ONLY a single valid JSON object with EXACTLY these keys, in this order:\n"
+    "{\n"
+    '  "brand": "",\n'
+    '  "sku": "",\n'
+    '  "category": "",\n'
+    '  "subcategory": "",\n'
+    '  "species": "",\n'
+    '  "size_label": "",\n'
+    '  "product_type_es": "",\n'
+    '  "color_es": "",\n'
+    '  "material_es": "",\n'
+    '  "shape_es": "",\n'
+    '  "printed_text": "",\n'
+    '  "confidence": 0.0\n'
+    "}\n"
+    "Never add other keys. Never invent values. If unsure, leave the field as the empty string.\n"
+    "Field rules:\n"
+    "- brand: brand name visible on the product/packaging, EXACT casing. \"\" if not clearly visible.\n"
+    "- sku: product code/model number visible on the product/packaging, EXACT characters. \"\" if none.\n"
+    f"- category: ONE of {{{', '.join(_VISION_CATEGORIES)}}}. Lowercase English slug. \"\" if unclear.\n"
+    "- subcategory: English snake_case slug; pick the closest match from these per-category lists:\n"
+    f"  {_VISION_SUBCATEGORY_HINTS}\n"
+    "  Use \"\" if no list entry fits — never invent a new slug.\n"
+    f"- species: ONE of {{{', '.join(_VISION_SPECIES)}}} based on intended pet. \"\" if unclear.\n"
+    f"- size_label: ONE of {{{', '.join(_VISION_SIZE_LABELS)}}} when a size letter is visible on the\n"
+    "  packaging. \"\" if not visible (do NOT translate Spanish words like 'mediano').\n"
+    "- product_type_es: short Spanish noun phrase describing the product (e.g. \"collar para perro\",\n"
+    "  \"juguete de peluche para perro\", \"comedero de acero\").\n"
+    "- color_es: dominant color(s) in Spanish (\"rojo\", \"azul, blanco\"). \"\" if unclear.\n"
+    "- material_es: material in Spanish (\"nylon\", \"goma\", \"acero\", \"plástico\"). \"\" if unclear.\n"
+    "- shape_es: shape in Spanish (\"redondo\", \"cilíndrico\"). \"\" if not relevant.\n"
+    "- printed_text: all readable text printed on product/packaging joined with spaces, VERBATIM. \"\" if none.\n"
+    "- confidence: number 0.0-1.0 that the photo shows a single identifiable product.\n"
+    "Spanish fields lowercase. Preserve original casing for brand, sku, printed_text, and size_label."
+)
+
+
+def _image_bytes_to_data_url(content: bytes, *, max_dim: int = 1024) -> str:
+    """
+    Decode an uploaded image, downscale + strip EXIF, return a data URL.
+
+    Vision models do not need full-resolution phone photos; downscaling cuts
+    cost and latency. EXIF stripping removes geolocation / device metadata
+    before we send the bytes to a third-party vision provider.
+    """
+    import base64
+    import io
+
+    from PIL import Image, ImageOps
+
+    try:
+        img = Image.open(io.BytesIO(content))
+        img = ImageOps.exif_transpose(img)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not decode image: {exc}") from exc
+
+    if img.mode not in {"RGB", "L"}:
+        img = img.convert("RGB")
+
+    img.thumbnail((max_dim, max_dim))
+
+    buf = io.BytesIO()
+    # Re-save without metadata; PIL drops EXIF automatically when we don't pass it.
+    img.save(buf, format="JPEG", quality=85, optimize=True)
+    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
+def _vision_extract_product(data_url: str) -> dict[str, Any]:
+    """
+    Call Google AI Studio (Gemini) via its OpenAI-compatible endpoint.
+
+    Uses GEMINI_API_KEY directly (no GCP/Vertex setup). Free-tier quotas are
+    generous: ~10 RPM, 250 RPD on gemini-2.5-flash. We send the standard
+    OpenAI content-array (text + image_url) with json_object mode; the prompt
+    pins the exact JSON skeleton.
+    """
+    import json
+
+    import httpx
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not set")
+
+    model = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
+
+    payload: dict[str, Any] = {
+        "model": model,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": _VISION_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Extract the product fields from this photo."},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ],
+            },
+        ],
+    }
+
+    try:
+        resp = httpx.post(
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=60.0,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"vision provider error: {exc}") from exc
+
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=502,
+            detail=f"vision provider error {resp.status_code}: {resp.text[:300]}",
+        )
+
+    data = resp.json()
+    try:
+        raw_content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise HTTPException(status_code=502, detail=f"vision response malformed: {exc}") from exc
+
+    if isinstance(raw_content, list):
+        # Some providers return content as parts; concat the text ones.
+        raw_content = "".join(
+            (p.get("text") or "")
+            for p in raw_content
+            if isinstance(p, dict) and p.get("type") == "text"
+        )
+
+    try:
+        parsed = json.loads(raw_content or "{}")
+    except json.JSONDecodeError:
+        # Defensive: some Gemini snapshots wrap JSON in code fences despite json_object mode.
+        stripped = (raw_content or "").strip().strip("`").strip()
+        if stripped.lower().startswith("json"):
+            stripped = stripped[4:].strip()
+        try:
+            parsed = json.loads(stripped or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=502, detail=f"vision JSON parse failed: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=502, detail="vision JSON not an object")
+
+    out: dict[str, Any] = {k: str(parsed.get(k) or "").strip() for k in _VISION_FIELDS}
+    try:
+        out["confidence"] = max(0.0, min(1.0, float(parsed.get("confidence") or 0.0)))
+    except (TypeError, ValueError):
+        out["confidence"] = 0.0
+    return out
+
+
+def _compose_search_query_from_vision(parsed: dict[str, Any]) -> str:
+    """
+    Build a Spanish prompt the chat tool-calling pipeline can decompose into
+    structured filters + a semantic descriptor phrase.
+
+    Two-part format:
+      1. A natural Spanish noun phrase (head + adjectives + 'de' clauses + size)
+         so multilingual-e5 embeds it like real product copy rather than a flat
+         token bag.
+      2. Explicit "categoría:", "subcategoría:", "marca:", "código:", "texto del
+         envase:" hint clauses that the tool-calling LLM extracts as
+         semantic_search(brand=..., category=...) filter arguments — turning
+         vision output into hard Qdrant payload filters at retrieval time.
+
+    Confidence gating: when the vision model reports confidence < 0.5, the soft
+    visual descriptors (color/material/shape/size) are dropped — those are the
+    fields the model most often hallucinates from cropped or angled photos and
+    they pollute the dense embedding more than they help. Brand / SKU /
+    printed_text are always kept since they are read off the product directly.
+    """
+    confidence = float(parsed.get("confidence") or 0.0)
+
+    head = (parsed.get("product_type_es") or "").strip()
+
+    keep_descriptors = confidence >= 0.5
+    color = (parsed.get("color_es") or "").strip() if keep_descriptors else ""
+    shape = (parsed.get("shape_es") or "").strip() if keep_descriptors else ""
+    material = (parsed.get("material_es") or "").strip() if keep_descriptors else ""
+
+    brand = (parsed.get("brand") or "").strip()
+    # Filter slugs are stored in Qdrant as English snake_case — keep them lowercase
+    # so the tool-calling LLM extracts them verbatim as semantic_search args.
+    category = (parsed.get("category") or "").strip().lower()
+    subcategory = (parsed.get("subcategory") or "").strip().lower()
+    species = (parsed.get("species") or "").strip().lower()
+    size_label = (parsed.get("size_label") or "").strip().upper()
+    printed = (parsed.get("printed_text") or "").strip()
+    sku = (parsed.get("sku") or "").strip()
+
+    # Validate slugs against the catalog vocabulary so a hallucinated slug never
+    # becomes a hard filter that excludes all products.
+    if category not in _VISION_CATEGORIES:
+        category = ""
+    if species not in _VISION_SPECIES:
+        species = ""
+    if size_label not in _VISION_SIZE_LABELS:
+        size_label = ""
+    # Subcategory list is long; trust the model if it's a snake_case token.
+    if subcategory and not all(c.isalnum() or c == "_" for c in subcategory):
+        subcategory = ""
+
+    # Noun phrase: head + post-nominal adjectives + 'de <material>' clause.
+    descriptors: list[str] = []
+    if head:
+        np_tokens = [head]
+        if color:
+            np_tokens.append(color)
+        if shape:
+            np_tokens.append(shape)
+        head_phrase = " ".join(np_tokens)
+        if material and material not in head_phrase.lower():
+            head_phrase = f"{head_phrase} de {material}"
+        descriptors.append(head_phrase)
+
+    descriptive_phrase = ", ".join(descriptors).strip()
+
+    # English-slug hint clauses — the tool-calling LLM forwards these verbatim
+    # as semantic_search(category=..., subcategory=..., species=...) args, which
+    # _build_filter turns into Qdrant FieldCondition filters that match the
+    # catalog payload (which is also English snake_case).
+    hints: list[str] = []
+    if category:
+        hints.append(f"category: {category}")
+    if subcategory:
+        hints.append(f"subcategory: {subcategory}")
+    if species:
+        hints.append(f"species: {species}")
+    if size_label:
+        hints.append(f"size_label: {size_label}")
+    if brand:
+        hints.append(f"brand: {brand}")
+    if sku:
+        hints.append(f"sku: {sku}")
+    if printed and printed.lower() != brand.lower():
+        hints.append(f"printed text: «{printed}»")
+
+    if not descriptive_phrase and not hints:
+        return ""
+
+    parts: list[str] = []
+    if descriptive_phrase:
+        parts.append(f"Buscar productos similares: {descriptive_phrase}")
+    if hints:
+        parts.append(". ".join(hints))
+    return ". ".join(parts).strip()
+
+
+# In-memory image-search quota per conversation_id.
+# Each entry: (count, first_seen_monotonic). Pruned lazily on each request.
+# Single-process only — fine for a POC. Swap for Redis if scaling out.
+import threading
+
+_IMAGE_QUOTA_LOCK = threading.Lock()
+_IMAGE_QUOTA: dict[str, tuple[int, float]] = {}
+
+
+def _image_quota_consume(conversation_id: str) -> tuple[int, int]:
+    """
+    Reserve one image-search slot for this conversation.
+    Returns (remaining_after, limit). Raises 429 if over the limit.
+    """
+    limit = max(1, int(os.getenv("IMAGE_SEARCH_PER_CONVERSATION_LIMIT", "4")))
+    ttl_s = max(60, int(os.getenv("IMAGE_SEARCH_QUOTA_TTL_SECONDS", str(6 * 3600))))
+    now = time.monotonic()
+
+    with _IMAGE_QUOTA_LOCK:
+        if len(_IMAGE_QUOTA) > 10000:
+            stale = [k for k, (_, ts) in _IMAGE_QUOTA.items() if now - ts > ttl_s]
+            for k in stale:
+                _IMAGE_QUOTA.pop(k, None)
+
+        count, first_seen = _IMAGE_QUOTA.get(conversation_id, (0, now))
+        if now - first_seen > ttl_s:
+            count, first_seen = 0, now
+
+        if count >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Image-search limit reached for this conversation ({limit} per session). Start a new chat to reset.",
+            )
+
+        _IMAGE_QUOTA[conversation_id] = (count + 1, first_seen)
+        return limit - (count + 1), limit
+
+
+def _image_quota_refund(conversation_id: str) -> None:
+    """Roll back a consumed slot when the vision provider itself failed (5xx)."""
+    with _IMAGE_QUOTA_LOCK:
+        entry = _IMAGE_QUOTA.get(conversation_id)
+        if entry is None:
+            return
+        count, first_seen = entry
+        if count <= 1:
+            _IMAGE_QUOTA.pop(conversation_id, None)
+        else:
+            _IMAGE_QUOTA[conversation_id] = (count - 1, first_seen)
+
+
+class ImageSearchResponse(BaseModel):
+    query: str
+    vision: dict[str, Any]
+    confidence: float
+    remaining: int
+    limit: int
+
+
+@app.post("/api/search_by_image", response_model=ImageSearchResponse)
+async def search_by_image(
+    file: UploadFile = File(...),
+    x_conversation_id: str | None = Header(default=None, alias="X-Conversation-Id"),
+) -> ImageSearchResponse:
+    conversation_id = (x_conversation_id or "").strip()
+    if not conversation_id or len(conversation_id) > 128:
+        raise HTTPException(status_code=400, detail="X-Conversation-Id header is required")
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    max_bytes = int(os.getenv("IMAGE_SEARCH_MAX_BYTES", str(10 * 1024 * 1024)))
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"Image exceeds {max_bytes} bytes")
+
+    # Decode first (user's fault if it fails — charge them no quota).
+    data_url = _image_bytes_to_data_url(content)
+
+    # Reserve the slot BEFORE the expensive vision call so spam can't burn API credits.
+    remaining, limit = _image_quota_consume(conversation_id)
+
+    rid = uuid.uuid4().hex[:8]
+    t0 = time.perf_counter()
+
+    logger.info(
+        "[%s] [PHASE photo:1/3 vision-call] input bytes=%d conv=%s",
+        rid, len(content), conversation_id[:12],
+    )
+
+    try:
+        parsed = _vision_extract_product(data_url)
+    except HTTPException as exc:
+        if exc.status_code >= 500:
+            _image_quota_refund(conversation_id)
+        logger.warning("[%s] [PHASE photo:1/3 vision-call] FAILED status=%d detail=%r",
+                       rid, exc.status_code, str(exc.detail)[:200])
+        raise
+
+    vision_ms = (time.perf_counter() - t0) * 1000.0
+    logger.info(
+        "[%s] [PHASE photo:1/3 vision-call] output confidence=%.2f fields=%s elapsed_ms=%.0f",
+        rid, parsed.get("confidence", 0.0),
+        {k: parsed.get(k) for k in _VISION_FIELDS if parsed.get(k)},
+        vision_ms,
+    )
+
+    t1 = time.perf_counter()
+    query = _compose_search_query_from_vision(parsed)
+    logger.info(
+        "[%s] [PHASE photo:2/3 compose] output query=%r elapsed_ms=%.0f",
+        rid, query, (time.perf_counter() - t1) * 1000.0,
+    )
+
+    logger.info(
+        "[%s] [PHASE photo:3/3 done] conv=%s remaining=%d total_ms=%.0f",
+        rid, conversation_id[:12], remaining,
+        (time.perf_counter() - t0) * 1000.0,
+    )
+
+    if not query:
+        raise HTTPException(
+            status_code=422,
+            detail="Vision model could not extract any product details from this image.",
+        )
+
+    return ImageSearchResponse(
+        query=query,
+        vision={k: parsed.get(k, "") for k in _VISION_FIELDS},
+        confidence=float(parsed.get("confidence", 0.0)),
+        remaining=remaining,
+        limit=limit,
+    )
 
 
 @app.get("/health")
@@ -1825,7 +2278,15 @@ def chat_tools_stream(req: ChatRequest):
     if not query:
         raise HTTPException(status_code=400, detail="query is required")
 
+    rid = uuid.uuid4().hex[:8]
+    t_start = time.perf_counter()
     conversation_id = ensure_conversation_id(req.conversation_id)
+    skus_in_user_query = list(_extract_skus_from_query(query) or [])
+    logger.info(
+        "[%s] [PHASE chat:0/N request] input query=%r history_len=%d skus=%s conv=%s",
+        rid, query, len(req.history or []), skus_in_user_query, conversation_id[:12],
+    )
+
     try:
         insert_message(
             conversation_id=conversation_id,
@@ -1834,7 +2295,7 @@ def chat_tools_stream(req: ChatRequest):
             metadata={"endpoint": "/api/chat_tools_stream"},
         )
     except Exception as e:
-        logger.warning("[chat_db] insert user message failed (/api/chat_tools_stream): %s: %s", type(e).__name__, e)
+        logger.warning("[%s] [chat_db] insert user message failed: %s: %s", rid, type(e).__name__, e)
 
     # --- Langfuse: create the span OUTSIDE the generator so input is logged
     # even if the generator crashes before producing its first event. ---
@@ -1843,15 +2304,15 @@ def chat_tools_stream(req: ChatRequest):
     if langfuse is not None:
         try:
             span = langfuse.start_observation(as_type="span", name="api_chat_tools_stream")
-            logger.info("[chat_tools_stream] span started trace_id=%s", getattr(span, "trace_id", None))
+            logger.info("[%s] langfuse span started trace_id=%s", rid, getattr(span, "trace_id", None))
         except Exception as e:
             logger.error(
-                "[chat_tools_stream] start_observation failed: %s: %s",
-                type(e).__name__, e, exc_info=True,
+                "[%s] start_observation failed: %s: %s",
+                rid, type(e).__name__, e, exc_info=True,
             )
             span = None
     else:
-        logger.warning("[chat_tools_stream] langfuse client is None — no trace will be sent")
+        logger.warning("[%s] langfuse client is None — no trace will be sent", rid)
 
     def _gen():
         intent = "unknown"
@@ -1866,11 +2327,18 @@ def chat_tools_stream(req: ChatRequest):
 
         try:
             yield _sse({"type": "phase", "phase": "understanding"})
+            logger.info("[%s] [PHASE chat:1/4 understanding] input query=%r", rid, query)
 
+            t_intent = time.perf_counter()
             try:
                 intent, language, intent_confidence = _route_intent_and_language(query)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[%s] intent routing failed: %s: %s", rid, type(e).__name__, e)
+            logger.info(
+                "[%s] [PHASE chat:1/4 understanding] output intent=%s lang=%s conf=%.2f elapsed_ms=%.0f",
+                rid, intent, language, intent_confidence,
+                (time.perf_counter() - t_intent) * 1000.0,
+            )
 
             yield _sse(
                 {
@@ -1881,7 +2349,6 @@ def chat_tools_stream(req: ChatRequest):
                 }
             )
 
-            # Log INPUT to Langfuse as early as possible.
             if span is not None:
                 try:
                     span.update(
@@ -1894,23 +2361,26 @@ def chat_tools_stream(req: ChatRequest):
                             "skus_in_user_query": list(_extract_skus_from_query(query) or []),
                         }
                     )
-                    logger.info(
-                        "[chat_tools_stream] input logged: intent=%s lang=%s conf=%.2f",
-                        intent, language, intent_confidence,
-                    )
                 except Exception as e:
                     logger.error(
-                        "[chat_tools_stream] span.update(input) failed: %s: %s",
-                        type(e).__name__, e, exc_info=True,
+                        "[%s] span.update(input) failed: %s: %s",
+                        rid, type(e).__name__, e, exc_info=True,
                     )
 
             yield _sse({"type": "phase", "phase": "loading_catalog"})
-
+            t_load = time.perf_counter()
             bm25_bundle = _get_bm25_bundle()
             client = _get_qdrant_client()
             embedder = _get_embedder()
             collection = os.getenv("QDRANT_COLLECTION", "catalog_es")
+            logger.info(
+                "[%s] [PHASE chat:2/4 loading_catalog] output collection=%s bm25_chunks=%d elapsed_ms=%.0f",
+                rid, collection, len(bm25_bundle.get("chunks") or []),
+                (time.perf_counter() - t_load) * 1000.0,
+            )
 
+            logger.info("[%s] [PHASE chat:3/4 tool-loop] start", rid)
+            tool_round = 0
             for evt in run_tool_loop_stream(
                 user_query=query,
                 history=req.history,
@@ -1922,17 +2392,43 @@ def chat_tools_stream(req: ChatRequest):
                 bm25_chunks=bm25_bundle["chunks"],
             ):
                 et = (evt or {}).get("type")
-                if et in {"phase", "tool_start", "tool_end"}:
+
+                if et == "phase":
+                    ph = evt.get("phase") or ""
+                    if ph == "planning":
+                        tool_round = int(evt.get("round") or 0)
+                        logger.info(
+                            "[%s] [PHASE chat:3/4 tool-loop] planning round=%d/%s",
+                            rid, tool_round, evt.get("max_rounds"),
+                        )
+                    elif ph == "finalizing":
+                        logger.info("[%s] [PHASE chat:3/4 tool-loop] finalizing", rid)
                     yield _sse(evt)
                     continue
+
+                if et == "tool_start":
+                    logger.info(
+                        "[%s] [PHASE chat:3/4 tool-loop] tool_start round=%d tool=%s",
+                        rid, tool_round, evt.get("tool"),
+                    )
+                    yield _sse(evt)
+                    continue
+
+                if et == "tool_end":
+                    logger.info(
+                        "[%s] [PHASE chat:3/4 tool-loop] tool_end round=%d tool=%s count=%s total=%s err=%s",
+                        rid, tool_round, evt.get("tool"),
+                        evt.get("count"), evt.get("total_count"), evt.get("error"),
+                    )
+                    yield _sse(evt)
+                    continue
+
                 if et == "status":
-                    # Backwards-compatible: tool loop may emit textual status updates.
-                    # Don't surface internal tool call text to the UI.
                     continue
 
                 if et == "error":
                     error = str(evt.get("message") or "Error.")
-                    logger.warning("[chat_tools_stream] tool loop error: %s", error)
+                    logger.warning("[%s] [PHASE chat:3/4 tool-loop] ERROR: %s", rid, error)
                     yield _sse({"type": "error", "message": error})
                     return
 
@@ -1946,6 +2442,18 @@ def chat_tools_stream(req: ChatRequest):
                     compare_result = evt.get("compare_result")
                     if not isinstance(compare_result, dict):
                         compare_result = None
+
+                    for tt in tool_trace:
+                        logger.info(
+                            "[%s] [PHASE chat:3/4 tool-loop] trace round=%s tool=%s args=%s summary=%s",
+                            rid, tt.get("round"), tt.get("name"),
+                            tt.get("arguments"), tt.get("result_summary"),
+                        )
+                    logger.info(
+                        "[%s] [PHASE chat:4/4 done] output answer_len=%d sources=%d sources_total=%s rounds=%d total_ms=%.0f",
+                        rid, len(answer), len(retrieved_products), sources_total,
+                        len(tool_trace), (time.perf_counter() - t_start) * 1000.0,
+                    )
 
                     if compare_result:
                         table_md = render_compare_products_markdown(compare_result, user_language=language)

@@ -12,3 +12,4 @@ uvicorn
 python-multipart
 httpx
 psycopg[binary]
+Pillow

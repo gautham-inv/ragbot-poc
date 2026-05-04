@@ -75,6 +75,37 @@ function MicIcon({ className }: { className?: string }) {
   );
 }
 
+function StopIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className ?? "h-4 w-4"}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="6" y="6" width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+function CameraIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className ?? "h-4 w-4"}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+
 function Waveform() {
   return (
     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-50">
@@ -337,13 +368,18 @@ export default function Home() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [voiceMode, setVoiceMode] = useState<"idle" | "recording" | "processing">("idle");
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [photoMode, setPhotoMode] = useState<"idle" | "uploading">("idle");
+  const [photoSearchesRemaining, setPhotoSearchesRemaining] = useState<number | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const conversationIdRef = useRef<string>(newId("conv"));
   const RECORDING_MAX_SECONDS = 240;
 
   const requestIdRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const loadingRef = useRef(false);
   const intentRef = useRef<string | null>(null);
@@ -511,6 +547,17 @@ export default function Home() {
     loadingTextTimerRef.current = setTimeout(tick, firstDelayMs);
   }
 
+  function stopGeneration() {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    requestIdRef.current++;
+    setLoading(false);
+    setLoadingStatus(null);
+    setFriendlyLoadingText(null);
+    clearLoadingTextTimer();
+    setStreaming(false);
+  }
+
   async function sendPrompt(prompt: string) {
     const text = prompt.trim();
     if (!text || loading) return;
@@ -538,6 +585,10 @@ export default function Home() {
     scheduleLoadingTextRotation(reqId);
     setStreaming(false);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const { signal } = controller;
+
     try {
       async function consumeSse(res: Response) {
         if (!res.ok || !res.body) return false;
@@ -550,6 +601,10 @@ export default function Home() {
           const { value, done } = await reader.read();
           if (done) break;
           if (requestIdRef.current !== reqId) break;
+          if (signal.aborted) {
+            try { await reader.cancel(); } catch {}
+            break;
+          }
 
           buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
           const parsed = parseSseEvents(buffer);
@@ -662,9 +717,11 @@ export default function Home() {
           query: text,
           history: historyForBackend,
           conversation_id: conversationId
-        })
+        }),
+        signal
       });
       if (await consumeSse(toolStreamRes)) return;
+      if (signal.aborted) return;
 
       const toolRes = await fetch(`${baseUrl}/api/chat_tools`, {
         method: "POST",
@@ -673,7 +730,8 @@ export default function Home() {
           query: text,
           history: historyForBackend,
           conversation_id: conversationId
-        })
+        }),
+        signal
       });
 
       if (toolRes.ok) {
@@ -709,15 +767,18 @@ export default function Home() {
           query: text,
           history: historyForBackend,
           conversation_id: conversationId
-        })
+        }),
+        signal
       });
       if (await consumeSse(res)) return;
+      if (signal.aborted) return;
 
       // Final fallback to non-streaming response.
       const fallback = await fetch(`${baseUrl}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: text, history: historyForBackend, conversation_id: conversationId })
+        body: JSON.stringify({ query: text, history: historyForBackend, conversation_id: conversationId }),
+        signal
       });
       const data = await fallback.json();
       if (typeof (data as any)?.conversation_id === "string") {
@@ -741,9 +802,15 @@ export default function Home() {
       setFriendlyLoadingText(null);
       clearLoadingTextTimer();
       return;
-    } catch {
-      updateAssistantMessage(assistantId, (m) => ({ ...m, content: "Error contacting server." }));
+    } catch (err) {
+      const aborted = signal.aborted || (err instanceof DOMException && err.name === "AbortError");
+      if (!aborted) {
+        updateAssistantMessage(assistantId, (m) => ({ ...m, content: "Error contacting server." }));
+      }
     } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
       if (requestIdRef.current === reqId) {
         setLoading(false);
         setLoadingStatus(null);
@@ -843,6 +910,76 @@ export default function Home() {
         ...prev,
         { id: newId("a"), role: "assistant", content: "Microphone access denied." }
       ]);
+    }
+  }
+
+  async function handlePhotoSelected(file: File | null) {
+    if (!file || loading || photoMode !== "idle") return;
+    if (photoSearchesRemaining === 0) {
+      setMessages((prev) => [
+        ...prev,
+        { id: newId("a"), role: "assistant", content: "Photo-search limit reached for this conversation. Refresh to start a new chat." }
+      ]);
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setMessages((prev) => [
+        ...prev,
+        { id: newId("a"), role: "assistant", content: "Please choose an image file." }
+      ]);
+      return;
+    }
+
+    setPhotoMode("uploading");
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name || "photo.jpg");
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const res = await fetch(`${baseUrl}/api/search_by_image`, {
+        method: "POST",
+        body: form,
+        headers: { "X-Conversation-Id": conversationIdRef.current }
+      });
+      if (res.status === 429) {
+        setPhotoSearchesRemaining(0);
+        const detail = await res.json().catch(() => ({}));
+        setMessages((prev) => [
+          ...prev,
+          { id: newId("a"), role: "assistant", content: detail?.detail || "Photo-search limit reached." }
+        ]);
+        return;
+      }
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        if (detail) console.error("[photo-search] backend error:", res.status, detail);
+        throw new Error("photo-search-unavailable");
+      }
+      const data = (await res.json()) as { query?: string; confidence?: number; remaining?: number };
+      if (typeof data?.remaining === "number") setPhotoSearchesRemaining(data.remaining);
+      const query = (data?.query || "").trim();
+      if (!query) {
+        setMessages((prev) => [
+          ...prev,
+          { id: newId("a"), role: "assistant", content: "Couldn't read a product from that photo. Try a clearer or closer shot." }
+        ]);
+        return;
+      }
+      sendPrompt(query);
+    } catch (err) {
+      if (err instanceof Error && err.message !== "photo-search-unavailable") {
+        console.error("[photo-search] unexpected error:", err);
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newId("a"),
+          role: "assistant",
+          content: "Photo search is temporarily unavailable. Please try again in a moment."
+        }
+      ]);
+    } finally {
+      setPhotoMode("idle");
+      if (photoInputRef.current) photoInputRef.current.value = "";
     }
   }
 
@@ -1231,6 +1368,43 @@ export default function Home() {
                 )}
               </div>
 
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => handlePhotoSelected(e.target.files?.[0] ?? null)}
+              />
+              <button
+                onClick={() => photoInputRef.current?.click()}
+                className={`relative flex h-9 w-9 items-center justify-center rounded-full border ${
+                  photoMode === "uploading" || photoSearchesRemaining === 0
+                    ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-300"
+                    : "border-slate-200 bg-slate-50 text-slate-600"
+                }`}
+                title={
+                  photoSearchesRemaining === 0
+                    ? "Photo-search limit reached for this conversation"
+                    : photoSearchesRemaining != null
+                      ? `Search by photo (${photoSearchesRemaining} left)`
+                      : "Search by photo"
+                }
+                type="button"
+                disabled={
+                  photoMode === "uploading" ||
+                  loading ||
+                  voiceMode !== "idle" ||
+                  photoSearchesRemaining === 0
+                }
+              >
+                <CameraIcon className="h-4 w-4" />
+                {photoSearchesRemaining != null && photoSearchesRemaining < 4 && (
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-600 px-1 text-[9px] font-semibold leading-none text-white">
+                    {photoSearchesRemaining}
+                  </span>
+                )}
+              </button>
+
               <button
                 onClick={toggleRecording}
                 className={`flex h-9 w-9 items-center justify-center rounded-full border ${
@@ -1242,18 +1416,30 @@ export default function Home() {
                 }`}
                 title="Voice input"
                 type="button"
-                disabled={voiceMode === "processing"}
+                disabled={voiceMode === "processing" || photoMode === "uploading"}
               >
                 <MicIcon className="h-4 w-4" />
               </button>
 
-              <button
-                onClick={() => sendPrompt(input)}
-                className="rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
-                disabled={loading || voiceMode !== "idle"}
-              >
-                {loading ? "..." : "Send"}
-              </button>
+              {loading ? (
+                <button
+                  onClick={stopGeneration}
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white hover:bg-slate-900"
+                  type="button"
+                  title="Stop generating"
+                  aria-label="Stop generating"
+                >
+                  <StopIcon className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => sendPrompt(input)}
+                  className="rounded-full bg-brand-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                  disabled={voiceMode !== "idle"}
+                >
+                  Send
+                </button>
+              )}
               </div>
             </div>
           </div>
