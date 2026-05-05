@@ -3,6 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "@/lib/auth-client";
+import {
+  getCached as getCachedAnalytics,
+  setCached as setCachedAnalytics,
+  invalidate as invalidateAnalytics,
+} from "@/lib/analytics-cache";
 
 /* ---------------- Types ---------------- */
 type Range = "24h" | "7d" | "30d";
@@ -1047,13 +1052,22 @@ export default function Page() {
         <div className="skeleton skeleton-icon" aria-hidden="true" />
         <div className="skeleton skeleton-title" aria-hidden="true" />
         <div className="skeleton skeleton-subtitle" aria-hidden="true" />
+        <p className="text-[12.5px] text-ink-2 mt-1">Loading analytics…</p>
       </div>
     </div>
   );
 
-  const fetchData = async (r: Range) => {
-    setLoading(true);
+  const fetchData = async (r: Range, opts: { bypassCache?: boolean } = {}) => {
     setError(null);
+    if (!opts.bypassCache) {
+      const cached = getCachedAnalytics<AnalyticsPayload>(r);
+      if (cached) {
+        setData(cached);
+        setLoading(false);
+        return;
+      }
+    }
+    setLoading(true);
     try {
       const res = await fetch(`/admin-api/analytics?range=${r}`);
       if (!res.ok) {
@@ -1062,6 +1076,7 @@ export default function Page() {
       }
       const j = (await res.json()) as AnalyticsPayload;
       setData(j);
+      setCachedAnalytics(r, j);
     } catch (e: any) {
       setError(e.message || "Unknown error");
       setData(null);
@@ -1233,6 +1248,14 @@ export default function Page() {
             </div>
           </Popover>
         </div>
+        <button
+          className="h-8 px-2.5 rounded-md border border-rule bg-card inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text disabled:opacity-50"
+          onClick={() => { invalidateAnalytics(); fetchData(range, { bypassCache: true }); }}
+          disabled={loading}
+          title="Bypass cache and re-aggregate"
+        >
+          {loading ? "…" : "Refresh"}
+        </button>
         <button
           className="h-8 px-2.5 rounded-md border border-rule bg-card inline-flex items-center gap-1.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text"
           onClick={() => router.push("/products")}

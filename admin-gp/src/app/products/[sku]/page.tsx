@@ -204,22 +204,26 @@ export default function ProductDetailPage() {
 
   if (loading && !product) {
     return (
-      <main className="mx-auto max-w-4xl px-7 pt-6 pb-12">
-        <p className="text-[12.5px] text-ink-3">Loading…</p>
+      <main className="mx-auto w-full max-w-[1600px] px-7 pt-6 pb-12">
+        <div className="mx-auto max-w-3xl">
+          <p className="text-[12.5px] text-ink-3">Loading…</p>
+        </div>
       </main>
     );
   }
 
   if (!product || !edit) {
     return (
-      <main className="mx-auto max-w-4xl px-7 pt-6 pb-12">
-        <h1 className="mb-1 text-[15px] font-semibold text-ink-text">Product not found</h1>
-        <p className="mb-4 text-[12.5px] text-ink-3">
-          SKU <span className="font-mono">{sku}</span> isn't in the index.
-        </p>
-        <Link href="/products" className="text-[12.5px] text-ink-700 hover:underline">
-          ← Back to products
-        </Link>
+      <main className="mx-auto w-full max-w-[1600px] px-7 pt-6 pb-12">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="mb-1 text-[15px] font-semibold text-ink-text">Product not found</h1>
+          <p className="mb-4 text-[12.5px] text-ink-3">
+            SKU <span className="font-mono">{sku}</span> isn't in the index.
+          </p>
+          <Link href="/products" className="text-[12.5px] text-ink-700 hover:underline">
+            ← Back to products
+          </Link>
+        </div>
       </main>
     );
   }
@@ -230,21 +234,25 @@ export default function ProductDetailPage() {
     : [];
 
   return (
-    <main className="mx-auto max-w-4xl px-7 pt-6 pb-12">
+    <main className="mx-auto w-full max-w-[1600px] px-7 pt-6 pb-12">
+     <div className="mx-auto max-w-3xl">
       <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-[15px] font-semibold text-ink-text">
-            {product.name_es || product.name_en || product.sku}
-          </h1>
-          <p className="font-mono text-[11px] text-ink-3">{product.sku}</p>
-        </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Link
             href="/products"
             className="inline-flex h-8 items-center rounded-md border border-rule bg-card px-2.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text"
+            title="Back to product list"
           >
-            ← Back
+            ← Products
           </Link>
+          <div>
+            <h1 className="text-[15px] font-semibold text-ink-text">
+              {product.name_es || product.name_en || product.sku}
+            </h1>
+            <p className="font-mono text-[11px] text-ink-3">{product.sku}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
           <button
             onClick={onDeleteProduct}
             className="inline-flex h-8 items-center rounded-md border border-bad/30 bg-bad-bg px-2.5 text-[12.5px] text-bad hover:bg-red-100"
@@ -392,6 +400,7 @@ export default function ProductDetailPage() {
           {JSON.stringify(product, null, 2)}
         </pre>
       </details>
+     </div>
     </main>
   );
 }

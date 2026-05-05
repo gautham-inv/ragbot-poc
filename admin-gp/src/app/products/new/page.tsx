@@ -89,22 +89,24 @@ export default function NewProductPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-7 pt-6 pb-12">
+    <main className="mx-auto w-full max-w-[1600px] px-7 pt-6 pb-12">
+     <div className="mx-auto max-w-3xl">
       <div className="mb-5 flex items-center justify-between">
-        <div>
-          <h1 className="text-[15px] font-semibold text-ink-text">Add product</h1>
-          <p className="text-[12.5px] text-ink-3">
-            Indexed into Qdrant immediately. Images upload to Cloudinary after the
-            product record is created.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Link
             href="/products"
             className="inline-flex h-8 items-center rounded-md border border-rule bg-card px-2.5 text-[12.5px] text-ink-2 hover:border-rule-strong hover:text-ink-text"
+            title="Back to product list"
           >
             ← Products
           </Link>
+          <div>
+            <h1 className="text-[15px] font-semibold text-ink-text">Add product</h1>
+            <p className="text-[12.5px] text-ink-3">
+              Indexed into Qdrant immediately. Images upload to Cloudinary after the
+              product record is created.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -211,6 +213,7 @@ export default function NewProductPage() {
           </button>
         </div>
       </form>
+     </div>
     </main>
   );
 }
