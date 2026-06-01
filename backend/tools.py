@@ -25,8 +25,9 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator
 
 import httpx
 from backend.image_map import attach_images
@@ -493,14 +494,6 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "30 brands, stored in Qdrant. **Every factual claim about a product (name, price, size, "
         "min order, availability) must come from a tool result.** Do not invent.\n\n"
 
-        "## LANGUAGE\n"
-        f"- Detected user language (ISO code): {lang}.\n"
-        f"- Write your reply in {language_name} to match the user.\n"
-        "- If the user writes the NEXT message in a different language, switch to that language "
-        "for that reply. You support every language the user speaks in — never tell the user "
-        "'I only work in X'. Product names and category labels may stay in their catalog language "
-        "(usually Spanish); translate them inline if helpful.\n\n"
-
         "## TONE\n"
         "- Conversational and warm, not clinical. Use friendly openers when natural "
         "('Te dejo algunas opciones…', 'Here are a few picks for you…', 'Voilà quelques options…').\n"
@@ -753,6 +746,18 @@ def build_tool_system_prompt(user_language: str | None = None) -> str:
         "- category: " + ", ".join(CATEGORY_ENUM) + "\n"
         "- species: " + ", ".join(SPECIES_ENUM) + "\n"
         "- group_by (for count_products): " + ", ".join(GROUP_BY_ENUM) + "\n"
+
+        # NOTE: the per-language block is intentionally LAST. Everything above is
+        # identical on every request, so it forms a stable prefix that OpenAI/
+        # OpenRouter prompt-caching can reuse across the whole (multilingual)
+        # traffic. Only this short tail varies by language.
+        "\n## LANGUAGE\n"
+        f"- Detected user language (ISO code): {lang}.\n"
+        f"- Write your reply in {language_name} to match the user.\n"
+        "- If the user writes the NEXT message in a different language, switch to that language "
+        "for that reply. You support every language the user speaks in — never tell the user "
+        "'I only work in X'. Product names and category labels may stay in their catalog language "
+        "(usually Spanish); translate them inline if helpful.\n"
     )
 
 
@@ -783,7 +788,11 @@ def semantic_search(
 
     # Over-fetch candidates so the reranker can promote strong matches that
     # hybrid RRF ranked lower. Trimmed back to `limit` after reranking.
-    initial_k = max(limit * 3, 20)
+    # The candidate count drives the cross-encoder's CPU cost, so it's tunable:
+    # RERANK_CANDIDATE_MULTIPLIER (default 3) and RERANK_CANDIDATE_MIN (default 20).
+    _mult = max(1, int(os.getenv("RERANK_CANDIDATE_MULTIPLIER", "3")))
+    _floor = max(1, int(os.getenv("RERANK_CANDIDATE_MIN", "20")))
+    initial_k = max(limit * _mult, _floor)
     vec = qdrant_search(qdrant, collection, embedder, query, top_k=initial_k, qdrant_filter=flt)
     kw = bm25_search(bm25, bm25_chunks, query, top_k=initial_k)
     fused = reciprocal_rank_fusion(vec, kw, top_n=initial_k)
@@ -1546,6 +1555,28 @@ def dispatch_tool(
 # --------------------------------------------------------------------------
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+# Pool for dispatching multiple tool calls from a single round concurrently.
+# Qdrant I/O and torch inference both release the GIL, so threads give real
+# overlap. Sized via env (default 8); only used when a round has >1 tool call.
+_TOOL_DISPATCH_WORKERS = max(1, int(os.getenv("TOOL_DISPATCH_WORKERS", "8")))
+_TOOL_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_TOOL_DISPATCH_WORKERS, thread_name_prefix="tooldispatch"
+)
+
+
+def _apply_prompt_cache_key(payload: dict[str, Any]) -> None:
+    """Attach a stable `prompt_cache_key` when configured.
+
+    OpenAI prompt caching is automatic (matches on the static prompt prefix);
+    this key only improves routing / hit-rate when many requests share that
+    prefix — which they now do (the tool system prompt is language-last). Opt-in
+    via the PROMPT_CACHE_KEY env var so it's never sent to a provider that might
+    reject an unknown field. Bump the value whenever the static prompt changes.
+    """
+    key = os.getenv("PROMPT_CACHE_KEY")
+    if key:
+        payload["prompt_cache_key"] = key
+
 
 def _openrouter_with_tools(
     messages: list[dict[str, Any]],
@@ -1569,10 +1600,115 @@ def _openrouter_with_tools(
         "tools": tools,
         "temperature": temperature,
     }
+    _apply_prompt_cache_key(payload)
     with httpx.Client(timeout=timeout) as c:
         r = c.post(OPENROUTER_URL, headers=headers, json=payload)
         r.raise_for_status()
         return r.json()
+
+
+def _parse_openrouter_tool_stream(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
+    """Parse an OpenRouter SSE token stream (chat-completions with tools).
+
+    Streaming + pure (no I/O): consumes an iterable of raw SSE lines and yields
+      {"kind": "content", "text": str}   for each incremental answer-text delta
+      {"kind": "final", "message": {...}, "finish_reason": str}   once, at the end
+
+    The final message assembles the streamed tool_calls (fragments arrive per
+    `index`, with `function.arguments` delivered as concatenated string pieces)
+    and the full content, matching the shape of the non-streaming
+    `choices[0].message` so the rest of the loop is unchanged.
+    """
+    content_parts: list[str] = []
+    tc_by_index: dict[int, dict[str, Any]] = {}
+    finish_reason = ""
+
+    for raw in lines:
+        line = (raw or "").strip()
+        if not line or line.startswith(":"):
+            # blank separator or SSE comment / keep-alive (": OPENROUTER PROCESSING")
+            continue
+        if not line.startswith("data:"):
+            continue
+        data = line[len("data:"):].strip()
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        choices = chunk.get("choices") or []
+        if not choices:
+            continue
+        ch0 = choices[0] or {}
+        delta = ch0.get("delta") or {}
+        if ch0.get("finish_reason"):
+            finish_reason = ch0["finish_reason"]
+
+        text = delta.get("content")
+        if text:
+            content_parts.append(text)
+            yield {"kind": "content", "text": text}
+
+        for tcd in (delta.get("tool_calls") or []):
+            idx = tcd.get("index", 0) or 0
+            slot = tc_by_index.setdefault(
+                idx,
+                {"id": None, "type": "function", "function": {"name": "", "arguments": ""}},
+            )
+            if tcd.get("id"):
+                slot["id"] = tcd["id"]
+            fn = tcd.get("function") or {}
+            if fn.get("name"):
+                slot["function"]["name"] = fn["name"]
+            if fn.get("arguments"):
+                slot["function"]["arguments"] += fn["arguments"]
+
+    tool_calls = [tc_by_index[i] for i in sorted(tc_by_index)]
+    message: dict[str, Any] = {"role": "assistant"}
+    content = "".join(content_parts)
+    if content:
+        message["content"] = content
+    if tool_calls:
+        message["tool_calls"] = tool_calls
+    yield {"kind": "final", "message": message, "finish_reason": finish_reason}
+
+
+def _openrouter_with_tools_stream(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    *,
+    model: str,
+    temperature: float = 0.0,
+    timeout: float = 120.0,
+) -> Iterator[dict[str, Any]]:
+    """Streaming variant of `_openrouter_with_tools`.
+
+    Yields the events of `_parse_openrouter_tool_stream`. Content deltas are
+    surfaced live so the caller can forward answer tokens to the client; the
+    final event carries the fully-assembled assistant message (content +
+    tool_calls), so tool dispatch downstream works exactly as before.
+    """
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY not set")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "HTTP-Referer": "ragbot-poc",
+        "X-Title": "ragbot-poc",
+    }
+    payload = {
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "temperature": temperature,
+        "stream": True,
+    }
+    _apply_prompt_cache_key(payload)
+    with httpx.Client(timeout=timeout) as c:
+        with c.stream("POST", OPENROUTER_URL, headers=headers, json=payload) as r:
+            r.raise_for_status()
+            yield from _parse_openrouter_tool_stream(r.iter_lines())
 
 
 def run_tool_loop(
@@ -1626,6 +1762,7 @@ def run_tool_loop(
             answer = msg.get("content") or ""
             break
 
+        parsed: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
         for tc in tool_calls:
             name = (tc.get("function") or {}).get("name") or ""
             args_raw = (tc.get("function") or {}).get("arguments") or "{}"
@@ -1633,12 +1770,23 @@ def run_tool_loop(
                 args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
             except json.JSONDecodeError:
                 args = {}
+            parsed.append((tc, name, args))
 
-            result = dispatch_tool(name, args,
-                                   qdrant=qdrant, collection=collection,
-                                   embedder=embedder, bm25=bm25,
-                                   bm25_chunks=bm25_chunks)
+        def _run(item: tuple[dict[str, Any], str, dict[str, Any]]) -> dict[str, Any]:
+            _tc, _name, _args = item
+            return dispatch_tool(_name, _args,
+                                 qdrant=qdrant, collection=collection,
+                                 embedder=embedder, bm25=bm25,
+                                 bm25_chunks=bm25_chunks)
 
+        # Independent tool calls in one round run concurrently; a single call runs
+        # inline. dispatch_tool never raises, so one failure can't sink the batch.
+        if len(parsed) > 1:
+            results = list(_TOOL_EXECUTOR.map(_run, parsed))
+        else:
+            results = [_run(parsed[0])]
+
+        for (tc, name, args), result in zip(parsed, results):
             if name == "compare_products" and isinstance(result, dict):
                 compare_result = result
 
@@ -1725,10 +1873,19 @@ def run_tool_loop_stream(
     try:
         for round_idx in range(max_rounds):
             yield {"type": "phase", "phase": "planning", "round": round_idx + 1, "max_rounds": max_rounds}
-            response = _openrouter_with_tools(messages, TOOL_SCHEMAS, model=model)
-            choice = (response.get("choices") or [{}])[0]
-            msg = choice.get("message") or {}
-            finish = choice.get("finish_reason") or ""
+
+            # Stream the planning call. Content deltas are forwarded live as answer
+            # tokens; the assembled message (with any tool_calls) arrives last. In
+            # the common case a tool round emits only tool_calls (no content), so
+            # tokens fire only on the final answer round.
+            msg: dict[str, Any] = {"role": "assistant"}
+            finish = ""
+            for ev in _openrouter_with_tools_stream(messages, TOOL_SCHEMAS, model=model):
+                if ev.get("kind") == "content":
+                    yield {"type": "token", "delta": ev.get("text") or ""}
+                elif ev.get("kind") == "final":
+                    msg = ev.get("message") or {"role": "assistant"}
+                    finish = ev.get("finish_reason") or ""
 
             # Always record the assistant message so tool-results can be attached to it.
             assistant_msg: dict[str, Any] = {"role": "assistant"}
@@ -1743,27 +1900,37 @@ def run_tool_loop_stream(
                 answer = msg.get("content") or ""
                 break
 
+            # Parse + announce every tool call up front so SSE order is stable.
+            parsed: list[tuple[dict[str, Any], str, dict[str, Any]]] = []
             for tc in tool_calls:
                 name = (tc.get("function") or {}).get("name") or ""
-                if name:
-                    yield {"type": "tool_start", "tool": name}
-
                 args_raw = (tc.get("function") or {}).get("arguments") or "{}"
                 try:
                     args = json.loads(args_raw) if isinstance(args_raw, str) else (args_raw or {})
                 except json.JSONDecodeError:
                     args = {}
+                parsed.append((tc, name, args))
+                if name:
+                    yield {"type": "tool_start", "tool": name}
 
-                result = dispatch_tool(
-                    name,
-                    args,
-                    qdrant=qdrant,
-                    collection=collection,
-                    embedder=embedder,
-                    bm25=bm25,
-                    bm25_chunks=bm25_chunks,
+            def _run(item: tuple[dict[str, Any], str, dict[str, Any]]) -> dict[str, Any]:
+                _tc, _name, _args = item
+                return dispatch_tool(
+                    _name, _args, qdrant=qdrant, collection=collection,
+                    embedder=embedder, bm25=bm25, bm25_chunks=bm25_chunks,
                 )
 
+            # Independent tool calls in one round run concurrently (Qdrant I/O and
+            # torch both release the GIL); a single call runs inline. dispatch_tool
+            # never raises (it returns {"error": ...}), so one failure can't sink
+            # the batch. Results are consumed in original order for deterministic
+            # SSE events and tool-message ordering.
+            if len(parsed) > 1:
+                results = list(_TOOL_EXECUTOR.map(_run, parsed))
+            else:
+                results = [_run(parsed[0])]
+
+            for (tc, name, args), result in zip(parsed, results):
                 if name == "compare_products" and isinstance(result, dict):
                     compare_result = result
 

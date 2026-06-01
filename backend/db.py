@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
-from typing import Any
+from contextlib import contextmanager
+from typing import Any, Iterator
 
 import psycopg
 
@@ -16,6 +17,67 @@ def _db_url() -> str | None:
 
 def _enabled() -> bool:
     return bool(_db_url())
+
+
+# --------------------------------------------------------------------------
+# Connection handling.
+#
+# Every call previously opened a fresh psycopg.connect() (two per chat turn) —
+# a full TCP+auth handshake each time. Set CHAT_DB_POOL=1 to reuse a connection
+# pool instead. Default (unset) keeps the exact previous behaviour: a direct
+# connection per call. The pool path falls back to a direct connection if
+# psycopg_pool isn't installed or the pool can't be created.
+# --------------------------------------------------------------------------
+_pool = None
+_pool_disabled = False
+
+
+def _pooling_enabled() -> bool:
+    return (os.getenv("CHAT_DB_POOL") or "").strip() == "1"
+
+
+def _get_pool():
+    global _pool, _pool_disabled
+    if _pool is not None or _pool_disabled:
+        return _pool
+    url = _db_url()
+    if not url:
+        return None
+    try:
+        from psycopg_pool import ConnectionPool
+
+        _pool = ConnectionPool(
+            conninfo=url,
+            min_size=int(os.getenv("CHAT_DB_POOL_MIN", "1")),
+            max_size=int(os.getenv("CHAT_DB_POOL_MAX", "5")),
+            open=True,
+        )
+        print("[chat_db] connection pool enabled.")
+        return _pool
+    except Exception as e:
+        print(f"[chat_db] pool unavailable ({e}); using direct connections.")
+        _pool_disabled = True
+        return None
+
+
+@contextmanager
+def _connect(*, autocommit: bool = False) -> Iterator[psycopg.Connection[Any]]:
+    """Yield a connection, from the pool when enabled, else a direct one.
+
+    Commit-on-exit semantics match `psycopg.connect()` used as a context manager,
+    whether pooled or direct.
+    """
+    url = _db_url()
+    assert url is not None
+    pool = _get_pool() if _pooling_enabled() else None
+    if pool is not None:
+        with pool.connection() as conn:
+            if conn.autocommit != autocommit:
+                conn.autocommit = autocommit
+            yield conn
+    else:
+        with psycopg.connect(url, autocommit=autocommit) as conn:
+            yield conn
 
 
 _chat_schema_ready = False
@@ -42,7 +104,7 @@ def init_chat_schema() -> None:
 
     try:
         # We use autocommit=True to ensure each DDL statement is committed immediately.
-        with psycopg.connect(url, autocommit=True) as conn:
+        with _connect(autocommit=True) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -137,7 +199,7 @@ def insert_message(
 
     meta_json = json.dumps(metadata, ensure_ascii=False, default=str) if metadata else None
     try:
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             _ensure_conversation_row(conn, conversation_id)
             conn.execute(
                 """
@@ -153,7 +215,7 @@ def insert_message(
     except psycopg.errors.UndefinedTable:
         # Self-heal once if tables are unexpectedly missing (e.g. external schema resets).
         init_chat_schema()
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             _ensure_conversation_row(conn, conversation_id)
             conn.execute(
                 """
@@ -181,7 +243,7 @@ def list_conversations(*, limit: int = 50) -> list[dict[str, Any]]:
 
     safe_limit = max(1, min(int(limit), 200))
     try:
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             rows = conn.execute(
                 """
                 SELECT
@@ -208,7 +270,7 @@ def list_conversations(*, limit: int = 50) -> list[dict[str, Any]]:
             ).fetchall()
     except psycopg.errors.UndefinedTable:
         init_chat_schema()
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             rows = conn.execute(
                 """
                 SELECT
@@ -260,7 +322,7 @@ def get_conversation_messages(conversation_id: str) -> list[dict[str, Any]]:
     assert url is not None
 
     try:
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             rows = conn.execute(
                 """
                 SELECT id, role, content, metadata, created_at
@@ -272,7 +334,7 @@ def get_conversation_messages(conversation_id: str) -> list[dict[str, Any]]:
             ).fetchall()
     except psycopg.errors.UndefinedTable:
         init_chat_schema()
-        with psycopg.connect(url) as conn:
+        with _connect() as conn:
             rows = conn.execute(
                 """
                 SELECT id, role, content, metadata, created_at

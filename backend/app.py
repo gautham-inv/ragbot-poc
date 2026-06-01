@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -33,6 +34,7 @@ from retrieval.product_dictionary import enrich_query_with_product_names
 from retrieval.rag_generate import build_context_str, build_system_prompt
 from retrieval.rrf import reciprocal_rank_fusion
 from groq import Groq
+from backend.lang_detect import detect_language
 from backend.tools import build_tool_system_prompt, render_compare_products_markdown, run_tool_loop, run_tool_loop_stream
 from backend.db import (
     ensure_conversation_id,
@@ -226,7 +228,11 @@ def _openrouter_chat(
         if provider is not None:
             send_kwargs["provider"] = provider
         res = open_router.chat.send(**send_kwargs)
-
+        if hasattr(res, "usage"):
+            u = res.usage
+            # For OpenAI/Anthropic via OpenRouter
+            cached = getattr(getattr(u, "prompt_tokens_details", {}), "cached_tokens", 0)
+            logger.info(f"[LLM] usage: total={u.total_tokens} prompt={u.prompt_tokens} cached={cached}")
     if hasattr(res, "choices") and res.choices:
         return res.choices[0].message.content
     return str(res)
@@ -620,6 +626,57 @@ def _route_intent_and_language(query: str) -> tuple[str, str, float]:
         return "unknown", "unknown", 0.0
 
 
+# Maps each tool the agent can call to the closest existing analytics intent.
+# Used to derive `intent` from the tool_trace AFTER the loop, so we don't spend
+# an LLM round-trip on the critical path just to label the turn for dashboards.
+_TOOL_TO_INTENT = {
+    "build_budget_basket": "basket_build",
+    "compare_products": "price_compare",
+    "get_product": "barcode_lookup",
+    "fit_search": "product_recommendation",
+    "semantic_search": "product_recommendation",
+    "filter_scroll": "product_search",
+    "count_products": "product_search",
+    "list_distinct_values": "product_search",
+}
+# When several tools fire in a turn, the most specific intent wins.
+_INTENT_PRIORITY = [
+    "basket_build", "price_compare", "barcode_lookup",
+    "product_recommendation", "product_search", "general_qa",
+]
+
+# Background pool for the OPTIONAL concurrent LLM intent classifier
+# (enabled via INTENT_ROUTER_LLM=1). It runs alongside the agent and is read at
+# trace-finalize time — never blocks the response.
+_INTENT_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="intent")
+
+
+def _derive_intent_from_tool_trace(tool_trace: list[dict[str, Any]]) -> str:
+    """Derive an analytics intent label from the tools the agent actually used.
+
+    No LLM, no network. Returns 'general_qa' when no catalog tool was called
+    (chitchat / advice answered directly).
+    """
+    intents: set[str] = set()
+    for t in (tool_trace or []):
+        nm = (t or {}).get("name")
+        mapped = _TOOL_TO_INTENT.get(nm)
+        if mapped:
+            intents.add(mapped)
+    if not intents:
+        return "general_qa"
+    for label in _INTENT_PRIORITY:
+        if label in intents:
+            return label
+    return "general_qa"
+
+
+def _route_language_local(query: str) -> str:
+    """Local (no-LLM) language detection for the routing layer."""
+    lang = detect_language(query)
+    return lang or "unknown"
+
+
 def _extract_openrouter_stream_delta(event: Any) -> str:
     # The OpenRouter SDK returns a mix of event types depending on mode/version:
     # - raw strings
@@ -786,16 +843,16 @@ def _products_from_sources(
             "price_pvpr": meta.get("price_pvpr") or meta.get("price_eur"),
             "price_per_unit": meta.get("price_per_unit"),
             "min_purchase_qty": meta.get("min_purchase_qty") or meta.get("min_order"),
-            # Single source of truth for images: arrays (for carousel UI).
-            # If the tool payload only has primary/thumbnail, fall back to 1-item arrays.
-            "images": images or ([primary] if primary else []),
-            "thumbnails": thumbnails or ([thumbnail] if thumbnail else []),
+            "primary_image": primary,
+            "thumbnail": thumbnail,
+            "images": images,
+            "thumbnails": thumbnails,
             "catalog_pages": meta.get("catalog_pages"),
             "primary_page": meta.get("primary_page"),
         }
         # Only include cards that actually have at least one image — otherwise
         # the frontend has nothing useful to show.
-        if not (isinstance(card.get("images"), list) and len(card["images"]) > 0):
+        if not (card["primary_image"] or card["images"]):
             continue
 
         seen_skus.add(sku)
@@ -810,8 +867,6 @@ def _normalize_source(payload: dict[str, Any], *, score: float) -> dict[str, Any
     meta = _source_meta(payload)
     chunk_id = _source_chunk_id(payload) or ""
     text = payload.get("text") or ""
-    # Avoid duplicating large fields between `text` and `metadata`.
-    meta.pop("text", None)
     # Keep qdrant ids / debug fields in metadata so the UI can show them if desired.
     for k in ("qdrant_point_id",):
         if k in payload and k not in meta:
@@ -822,57 +877,6 @@ def _normalize_source(payload: dict[str, Any], *, score: float) -> dict[str, Any
         "metadata": meta,
         "score": round(float(score), 6),
     }
-
-
-def _compact_tool_source_metadata(p: dict[str, Any]) -> dict[str, Any]:
-    """
-    Tool results often include a full product payload (including duplicated `text`,
-    image arrays, and many nulls). For SSE + chat history we keep only the fields
-    the UI actually reads.
-    """
-    if not isinstance(p, dict):
-        return {}
-
-    keep_keys = {
-        # Identity / routing
-        "id",
-        "chunk_id",
-        "chunk_type",
-        "brand",
-        "sku",
-        "ean",
-        "name_es",
-        "name",
-        "product_name",
-        "category",
-        "subcategory",
-        "species",
-        "change_flag",
-        # Pricing / ordering
-        "price_pvpr",
-        "price_eur",
-        "price_per_unit",
-        "min_purchase_qty",
-        "min_order",
-        "price_total_min_order",
-        "effective_unit_price",
-        "has_price",
-        # Page cross-ref (Excel indexing path)
-        "catalog_pages",
-        "primary_page",
-        # Page fields (OCR indexing path)
-        "physical_page_number",
-        "page_number",
-        # Images (arrays are used by the UI carousel; single fields are redundant)
-        "images",
-        "thumbnails",
-    }
-
-    out: dict[str, Any] = {}
-    for k in keep_keys:
-        if k in p and p[k] is not None:
-            out[k] = p[k]
-    return out
 
 
 @app.post("/api/transcribe")
@@ -1366,12 +1370,14 @@ def warmup() -> dict[str, Any]:
     - BM25 bundle load
     - embedding model load
     - Qdrant client init
+    - language detector models
 
     This helps cold-start latency on small servers.
     """
     bm25_ok = False
     embed_ok = False
     qdrant_ok = False
+    lang_ok = False
     try:
         _get_bm25_bundle()
         bm25_ok = True
@@ -1390,11 +1396,19 @@ def warmup() -> dict[str, Any]:
     except Exception:
         qdrant_ok = False
 
+    try:
+        from backend import lang_detect
+        lang_detect.warmup()
+        lang_ok = True
+    except Exception:
+        lang_ok = False
+
     return {
         "status": "ok",
         "bm25_loaded": bm25_ok,
         "embedder_loaded": embed_ok,
         "qdrant_client_ready": qdrant_ok,
+        "lang_detector_loaded": lang_ok,
         "langfuse": "enabled" if _langfuse_enabled() else "disabled",
     }
 
@@ -2037,6 +2051,7 @@ def chat_stream(req: ChatRequest):
                     "sources": retrieved_chunks,
                     "rewritten_query": search_query,
                     "enriched_query": enriched_query,
+                    "products": products,
                 }
             )
         except Exception as e:
@@ -2122,10 +2137,9 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
     error: str | None = None
 
     try:
-        try:
-            intent, language, intent_confidence = _route_intent_and_language(query)
-        except Exception:
-            pass
+        # Language: local detection (no LLM round-trip). Intent is derived from
+        # the tool_trace after the loop (analytics-only) — see below.
+        language = _route_language_local(query)
 
         bm25_bundle = _get_bm25_bundle()
         client = _get_qdrant_client()
@@ -2159,6 +2173,7 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
         )
         answer = result["answer"]
         tool_trace = result["tool_trace"]
+        intent = _derive_intent_from_tool_trace(tool_trace)
         retrieved_products = result["retrieved_products"]
         sources_total = result.get("sources_total")
         cr = result.get("compare_result")
@@ -2186,11 +2201,10 @@ def chat_tools(req: ChatRequest) -> ChatResponse:
             continue
         if cid:
             seen_ids.add(cid)
-        md = _compact_tool_source_metadata(dict(p or {}))
         sources.append({
             "chunk_id": cid,
             "text": p.get("text") or "",
-            "metadata": md,
+            "metadata": p,
             "score": 1.0,
         })
 
@@ -2331,11 +2345,15 @@ def chat_tools_stream(req: ChatRequest):
         retrieved_skus: list[str] = []
         sku_product_names: dict[str, str] = {}
         error: str | None = None
+        t0 = time.monotonic()
+        first_token_ms: int | None = None
+        intent_future = None
 
         try:
             yield _sse({"type": "phase", "phase": "understanding"})
             logger.info("[%s] [PHASE chat:1/4 understanding] input query=%r", rid, query)
 
+<<<<<<< HEAD
             t_intent = time.perf_counter()
             try:
                 intent, language, intent_confidence = _route_intent_and_language(query)
@@ -2346,6 +2364,18 @@ def chat_tools_stream(req: ChatRequest):
                 rid, intent, language, intent_confidence,
                 (time.perf_counter() - t_intent) * 1000.0,
             )
+=======
+            # Language: local detection — no LLM round-trip on the critical path.
+            language = _route_language_local(query)
+            # Intent: analytics-only. Default = derived from tool_trace after the
+            # loop (free). Set INTENT_ROUTER_LLM=1 to instead run the LLM classifier
+            # concurrently in the background and read it at trace-finalize time.
+            if os.getenv("INTENT_ROUTER_LLM", "0") == "1":
+                try:
+                    intent_future = _INTENT_EXECUTOR.submit(_route_intent_and_language, query)
+                except Exception:
+                    intent_future = None
+>>>>>>> 06aef5a (fix: new fixes)
 
             yield _sse(
                 {
@@ -2399,6 +2429,7 @@ def chat_tools_stream(req: ChatRequest):
                 bm25_chunks=bm25_bundle["chunks"],
             ):
                 et = (evt or {}).get("type")
+<<<<<<< HEAD
 
                 if et == "phase":
                     ph = evt.get("phase") or ""
@@ -2410,6 +2441,16 @@ def chat_tools_stream(req: ChatRequest):
                         )
                     elif ph == "finalizing":
                         logger.info("[%s] [PHASE chat:3/4 tool-loop] finalizing", rid)
+=======
+                if et == "token":
+                    # Incremental answer delta ({delta: "..."}), streamed live.
+                    # Record time-to-first-token so the trace proves the win.
+                    if first_token_ms is None:
+                        first_token_ms = int((time.monotonic() - t0) * 1000)
+                    yield _sse(evt)
+                    continue
+                if et in {"phase", "tool_start", "tool_end"}:
+>>>>>>> 06aef5a (fix: new fixes)
                     yield _sse(evt)
                     continue
 
@@ -2475,12 +2516,11 @@ def chat_tools_stream(req: ChatRequest):
                             continue
                         if cid:
                             seen_ids.add(cid)
-                        md = _compact_tool_source_metadata(dict(p or {}))
                         sources_out.append(
                             {
                                 "chunk_id": cid,
-                                "text": (p.get("text") or ""),
-                                "metadata": md,
+                                "text": p.get("text") or "",
+                                "metadata": p,
                                 "score": 1.0,
                             }
                         )
@@ -2538,6 +2578,7 @@ def chat_tools_stream(req: ChatRequest):
                         "answer": answer,
                         "sources": sources_out,
                         "sources_total": sources_total,
+                        "products": products,
                     })
                     return
 
@@ -2549,6 +2590,20 @@ def chat_tools_stream(req: ChatRequest):
             logger.error("[chat_tools_stream] unhandled: %s", error, exc_info=True)
             yield _sse({"type": "error", "message": error})
         finally:
+            # Resolve intent off the critical path: prefer the concurrent LLM
+            # classifier (if enabled and ready), else derive it from the tools the
+            # agent actually used. Never blocks — the work already ran in parallel.
+            if intent == "unknown":
+                if intent_future is not None:
+                    try:
+                        _timeout = float(os.getenv("INTENT_LLM_TIMEOUT", "2.0"))
+                        llm_intent, _l, _c = intent_future.result(timeout=_timeout)
+                        intent = llm_intent or _derive_intent_from_tool_trace(tool_trace)
+                    except Exception:
+                        intent = _derive_intent_from_tool_trace(tool_trace)
+                else:
+                    intent = _derive_intent_from_tool_trace(tool_trace)
+
             # --- Log OUTPUT + tags + scores, then end + flush. ---
             if span is not None:
                 try:
@@ -2556,6 +2611,7 @@ def chat_tools_stream(req: ChatRequest):
                         output={
                             "answer": (answer or "")[:20000],
                             "answer_truncated": len(answer or "") > 20000,
+                            "time_to_first_token_ms": first_token_ms,
                             "tool_trace": tool_trace,
                             "rounds": len(tool_trace),
                             "retrieved_count": len(sources_out),
@@ -2735,3 +2791,4 @@ def langfuse_diagnose() -> dict[str, Any]:
     all_ok = all(isinstance(v, dict) and v.get("ok") for v in report["steps"].values())
     report["final"] = "ALL OK — check Langfuse UI for trace 'langfuse_diagnose'" if all_ok else "Some steps failed — see per-step errors"
     return report
+
