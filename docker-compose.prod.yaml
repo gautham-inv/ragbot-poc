@@ -51,6 +51,17 @@ services:
       - .env
     environment:
       - CHAT_DATABASE_URL=postgresql://admin:secure_password@auth-db:5432/ragbot_auth
+      # --- Latency optimization knobs (version-controlled; these override the
+      #     host .env for the same keys). Secrets stay in the host .env. ---
+      - LANG_DETECT_LANGUAGES=en,es,fr      # local lang detect, main languages
+      - PROMPT_CACHE_KEY=gloriapets-tools-v1 # prompt-cache routing (safe win)
+      - INTENT_ROUTER_LLM=0                  # intent derived from tools (no LLM)
+      - TOOL_DISPATCH_WORKERS=8              # concurrency for multi-tool rounds
+      - RERANK_CANDIDATE_MULTIPLIER=3        # rerank over-fetch = max(limit*3, MIN)
+      - RERANK_CANDIDATE_MIN=20
+      # Chat-DB connection pool. Set 0 (then redeploy) to instantly revert to
+      # per-call connections if persistence misbehaves.
+      - CHAT_DB_POOL=1
     restart: always
 
   ragbot-web:
