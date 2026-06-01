@@ -12,10 +12,7 @@ uvicorn
 python-multipart
 httpx
 psycopg[binary]
-<<<<<<< HEAD
 cloudinary
 Pillow
-=======
 psycopg_pool  # optional chat-DB connection pool (enable with CHAT_DB_POOL=1)
 lingua-language-detector  # local language detection for routing (short-text accurate)
->>>>>>> 06aef5a (fix: new fixes)

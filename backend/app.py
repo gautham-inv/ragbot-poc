@@ -2353,18 +2353,7 @@ def chat_tools_stream(req: ChatRequest):
             yield _sse({"type": "phase", "phase": "understanding"})
             logger.info("[%s] [PHASE chat:1/4 understanding] input query=%r", rid, query)
 
-<<<<<<< HEAD
             t_intent = time.perf_counter()
-            try:
-                intent, language, intent_confidence = _route_intent_and_language(query)
-            except Exception as e:
-                logger.warning("[%s] intent routing failed: %s: %s", rid, type(e).__name__, e)
-            logger.info(
-                "[%s] [PHASE chat:1/4 understanding] output intent=%s lang=%s conf=%.2f elapsed_ms=%.0f",
-                rid, intent, language, intent_confidence,
-                (time.perf_counter() - t_intent) * 1000.0,
-            )
-=======
             # Language: local detection — no LLM round-trip on the critical path.
             language = _route_language_local(query)
             # Intent: analytics-only. Default = derived from tool_trace after the
@@ -2375,7 +2364,11 @@ def chat_tools_stream(req: ChatRequest):
                     intent_future = _INTENT_EXECUTOR.submit(_route_intent_and_language, query)
                 except Exception:
                     intent_future = None
->>>>>>> 06aef5a (fix: new fixes)
+            logger.info(
+                "[%s] [PHASE chat:1/4 understanding] output lang=%s intent_mode=%s elapsed_ms=%.0f",
+                rid, language, "llm" if intent_future is not None else "derived",
+                (time.perf_counter() - t_intent) * 1000.0,
+            )
 
             yield _sse(
                 {
@@ -2429,7 +2422,13 @@ def chat_tools_stream(req: ChatRequest):
                 bm25_chunks=bm25_bundle["chunks"],
             ):
                 et = (evt or {}).get("type")
-<<<<<<< HEAD
+                if et == "token":
+                    # Incremental answer delta ({delta: "..."}), streamed live.
+                    # Record time-to-first-token so the trace proves the win.
+                    if first_token_ms is None:
+                        first_token_ms = int((time.monotonic() - t0) * 1000)
+                    yield _sse(evt)
+                    continue
 
                 if et == "phase":
                     ph = evt.get("phase") or ""
@@ -2441,16 +2440,6 @@ def chat_tools_stream(req: ChatRequest):
                         )
                     elif ph == "finalizing":
                         logger.info("[%s] [PHASE chat:3/4 tool-loop] finalizing", rid)
-=======
-                if et == "token":
-                    # Incremental answer delta ({delta: "..."}), streamed live.
-                    # Record time-to-first-token so the trace proves the win.
-                    if first_token_ms is None:
-                        first_token_ms = int((time.monotonic() - t0) * 1000)
-                    yield _sse(evt)
-                    continue
-                if et in {"phase", "tool_start", "tool_end"}:
->>>>>>> 06aef5a (fix: new fixes)
                     yield _sse(evt)
                     continue
 
